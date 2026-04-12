@@ -127,6 +127,13 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(16px);background:var(--green);color:#111;padding:10px 20px;border-radius:8px;font-family:var(--sans);font-size:13px;font-weight:700;opacity:0;transition:all .3s;pointer-events:none;white-space:nowrap;z-index:300;}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
 .toast.err{background:var(--red);color:#fff;}
+/* 割増理由ボタン */
+.reason-area{padding:10px 10px 8px;border-top:1px solid var(--border);}
+.reason-label{font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;margin-bottom:7px;}
+.reason-btns{display:flex;flex-wrap:wrap;gap:6px;}
+.reason-btn{padding:7px 12px;border:1.5px solid var(--border);border-radius:6px;background:var(--panel2);color:var(--text2);font-family:var(--sans);font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;-webkit-tap-highlight-color:transparent;}
+.reason-btn.selected{background:#1e1a2e;border-color:#a78bda;color:#a78bda;}
+.reason-count{font-family:var(--mono);font-size:10px;color:var(--text3);margin-left:4px;}
 </style>
 </head>
 <body>
@@ -179,21 +186,24 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
           </select>
         </div>
       </div>
-      <!-- 割増理由・備考 -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--border);">
-        <div class="sel-col" style="border-right:1px solid var(--border);">
-          <div class="sel-label">REASON 割増理由（任意）</div>
-          <select class="main-select" id="selReason" onchange="onReason(this)">
-            <option value="">─ 選択 ─</option>
-            <option>大きさ</option><option>有筋</option><option>鉄筋</option>
-            <option>木くず</option><option>ゴム</option><option>プラスチック</option>
-            <option>ゴミ</option><option>その他</option>
-          </select>
+      <!-- 割増理由（複数選択・最大4つ） -->
+      <div class="reason-area">
+        <div class="reason-label">REASON 割増理由（任意・最大4つ）<span class="reason-count" id="reasonCount"></span></div>
+        <div class="reason-btns" id="reasonBtns">
+          <button class="reason-btn" onclick="toggleReason(this,'大きさ')">大きさ</button>
+          <button class="reason-btn" onclick="toggleReason(this,'有筋')">有筋</button>
+          <button class="reason-btn" onclick="toggleReason(this,'鉄筋')">鉄筋</button>
+          <button class="reason-btn" onclick="toggleReason(this,'木くず')">木くず</button>
+          <button class="reason-btn" onclick="toggleReason(this,'ゴム')">ゴム</button>
+          <button class="reason-btn" onclick="toggleReason(this,'プラスチック')">プラスチック</button>
+          <button class="reason-btn" onclick="toggleReason(this,'ゴミ')">ゴミ</button>
+          <button class="reason-btn" onclick="toggleReason(this,'その他')">その他</button>
         </div>
-        <div class="sel-col">
-          <div class="sel-label">NOTE 備考（任意）</div>
-          <input class="memo-input" id="memoInput" type="text" placeholder="自由入力…" oninput="onMemo(this)">
-        </div>
+      </div>
+      <!-- 備考 -->
+      <div class="sel-col" style="border-top:1px solid var(--border);padding:10px;">
+        <div class="sel-label">NOTE 備考（任意）</div>
+        <input class="memo-input" id="memoInput" type="text" placeholder="自由入力…" oninput="onMemo(this)">
       </div>
       <div class="preview-bar" id="previewBar">
         <span class="preview-empty">車番・品目・車種・割増を選択してください</span>
@@ -260,7 +270,7 @@ function getSurOpts(item, vehicle) {
   ];
 }
 
-var st = {plate:'',item:'',vehicle:'',surcharge:'',reason:'',memo:''};
+var st = {plate:'',item:'',vehicle:'',surcharge:'',reasons:[],memo:''};
 var localHist = [];
 var fbReady = false; // Firebase接続フラグ
 
@@ -284,9 +294,22 @@ function onSur(el) {
   updatePreview(); updateSendBtn();
 }
 
-function onReason(el) {
-  st.reason=el.value;
-  el.className='main-select'+(el.value?' s-item':'');
+function toggleReason(btn, val) {
+  var idx = st.reasons.indexOf(val);
+  if (idx >= 0) {
+    // 選択解除
+    st.reasons.splice(idx, 1);
+    btn.classList.remove('selected');
+  } else {
+    // 最大4つまで
+    if (st.reasons.length >= 4) {
+      showToast('割増理由は最大4つまでです', true); return;
+    }
+    st.reasons.push(val);
+    btn.classList.add('selected');
+  }
+  var cnt = document.getElementById('reasonCount');
+  if (cnt) cnt.textContent = st.reasons.length > 0 ? ' (' + st.reasons.length + '/' + 4 + ')' : '';
   updatePreview();
 }
 function onMemo(el) {
@@ -318,7 +341,7 @@ function updatePreview() {
   if (item)      h+='<span class="ptag ptag-item">'+item+'</span>';
   if (vehicle)   h+='<span class="ptag ptag-vehicle">'+vehicle+'</span>';
   if (surcharge) h+='<span class="ptag ptag-'+surcharge+'">'+scLbl(surcharge)+'</span>';
-  if (st.reason) h+='<span class="ptag" style="color:var(--purple,#a78bda);border-color:var(--purple,#a78bda);background:#1e1a2e">'+st.reason+'</span>';
+  st.reasons.forEach(function(r){h+='<span class="ptag" style="color:#a78bda;border-color:#a78bda;background:#1e1a2e">'+r+'</span>';});
   if (st.memo)   h+='<span class="ptag" style="color:var(--text2);border-color:var(--border);background:var(--panel2)">'+st.memo+'</span>';
   bar.innerHTML=h;
 }
@@ -335,7 +358,7 @@ function submitEntry() {
   if (plate.length<1||!item||!vehicle||!surcharge) return;
   if (!fbReady) { showToast('Firebase未接続のため送信できません',true); return; }
   var entry={plate:plate,item:item,vehicle:vehicle,surcharge:surcharge,
-    reason:st.reason,memo:st.memo,
+    reasons:st.reasons.join(','),memo:st.memo,
     timestamp:new Date().toISOString(),confirmed:false};
   var btn=document.getElementById('sendBtn');
   btn.disabled=true; btn.textContent='送信中…';
@@ -349,7 +372,7 @@ function submitEntry() {
 }
 
 function resetForm() {
-  st={plate:'',item:'',vehicle:'',surcharge:'',reason:'',memo:''};
+  st={plate:'',item:'',vehicle:'',surcharge:'',reasons:[],memo:''};
   document.getElementById('plateInput').value='';
   ['selItem','selVehicle'].forEach(function(id){
     var e=document.getElementById(id);e.value='';e.className='main-select';e.disabled=false;
@@ -359,7 +382,7 @@ function resetForm() {
   ss.className='main-select';ss.disabled=false;
   updatePreview(); updateSendBtn();
   document.getElementById('sendBtn').textContent='送信する';
-  document.getElementById('selReason').value=''; document.getElementById('selReason').className='main-select';
+  document.querySelectorAll('.reason-btn').forEach(function(b){b.classList.remove('selected');}); var rc=document.getElementById('reasonCount'); if(rc)rc.textContent='';
   document.getElementById('memoInput').value='';
 }
 
@@ -416,7 +439,7 @@ function renderCard(e) {
     +'<span class="badge badge-item">'+e.item+'</span>'
     +'<span class="badge badge-vehicle">'+e.vehicle+'</span>'
     +'<span class="badge badge-'+e.surcharge+'">'+scLbl(e.surcharge)+'</span>'
-    +(e.reason?'<span class="badge" style="color:var(--purple,#a78bda);border-color:var(--purple,#a78bda);background:#1e1a2e">'+e.reason+'</span>':'')
+    +(e.reasons?e.reasons.split(',').map(function(r){return '<span class="badge" style="color:#a78bda;border-color:#a78bda;background:#1e1a2e">'+r+'</span>';}).join(''):'')
     +(e.memo?'<span style="font-size:11px;color:var(--text2);font-style:italic">'+e.memo+'</span>':'')
     +'</div>'
     +'<div class="entry-actions">'
