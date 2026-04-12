@@ -72,6 +72,9 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
 .history-label{font-family:var(--mono);font-size:10px;color:var(--text3);letter-spacing:.1em;}
 .history-clr{font-family:var(--mono);font-size:10px;color:var(--text3);background:transparent;border:none;cursor:pointer;padding:2px 6px;}
 .history-clr:hover{color:var(--red);}
+.memo-input{width:100%;background:var(--panel2);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--sans);font-size:14px;font-weight:700;padding:9px 8px;outline:none;transition:border-color .15s;}
+.memo-input:focus{border-color:var(--accent);}
+.memo-input::placeholder{color:var(--text3);font-weight:400;}
 .history-list{display:flex;flex-direction:column;gap:6px;}
 .history-item{background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:10px 12px;display:flex;align-items:center;gap:8px;animation:slideIn .25s ease;}
 @keyframes slideIn{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
@@ -150,7 +153,7 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
         <input class="plate-input" id="plateInput"
           type="tel" inputmode="numeric" maxlength="4" placeholder="0000"
           oninput="onPlate(this)" onkeypress="return /[0-9]/.test(event.key)">
-        <span class="plate-hint">ナンバー<br>下4桁</span>
+        <span class="plate-hint">ナンバー<br>1〜4桁</span>
       </div>
       <div class="selects-grid">
         <div class="sel-col">
@@ -174,6 +177,22 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
           <select class="main-select" id="selSur" onchange="onSur(this)">
             <option value="">─ 割増 ─</option>
           </select>
+        </div>
+      </div>
+      <!-- 割増理由・備考 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;border-top:1px solid var(--border);">
+        <div class="sel-col" style="border-right:1px solid var(--border);">
+          <div class="sel-label">REASON 割増理由（任意）</div>
+          <select class="main-select" id="selReason" onchange="onReason(this)">
+            <option value="">─ 選択 ─</option>
+            <option>大きさ</option><option>有筋</option><option>鉄筋</option>
+            <option>木くず</option><option>ゴム</option><option>プラスチック</option>
+            <option>ゴミ</option><option>その他</option>
+          </select>
+        </div>
+        <div class="sel-col">
+          <div class="sel-label">NOTE 備考（任意）</div>
+          <input class="memo-input" id="memoInput" type="text" placeholder="自由入力…" oninput="onMemo(this)">
         </div>
       </div>
       <div class="preview-bar" id="previewBar">
@@ -241,7 +260,7 @@ function getSurOpts(item, vehicle) {
   ];
 }
 
-var st = {plate:'',item:'',vehicle:'',surcharge:''};
+var st = {plate:'',item:'',vehicle:'',surcharge:'',reason:'',memo:''};
 var localHist = [];
 var fbReady = false; // Firebase接続フラグ
 
@@ -263,6 +282,15 @@ function onSur(el) {
   st.surcharge=el.value;
   el.className='main-select'+(el.value?' s-'+el.value:'');
   updatePreview(); updateSendBtn();
+}
+
+function onReason(el) {
+  st.reason=el.value;
+  el.className='main-select'+(el.value?' s-item':'');
+  updatePreview();
+}
+function onMemo(el) {
+  st.memo=el.value; updatePreview();
 }
 
 function rebuildSur() {
@@ -290,21 +318,24 @@ function updatePreview() {
   if (item)      h+='<span class="ptag ptag-item">'+item+'</span>';
   if (vehicle)   h+='<span class="ptag ptag-vehicle">'+vehicle+'</span>';
   if (surcharge) h+='<span class="ptag ptag-'+surcharge+'">'+scLbl(surcharge)+'</span>';
+  if (st.reason) h+='<span class="ptag" style="color:var(--purple,#a78bda);border-color:var(--purple,#a78bda);background:#1e1a2e">'+st.reason+'</span>';
+  if (st.memo)   h+='<span class="ptag" style="color:var(--text2);border-color:var(--border);background:var(--panel2)">'+st.memo+'</span>';
   bar.innerHTML=h;
 }
 
 function updateSendBtn() {
   var btn=document.getElementById('sendBtn');
-  var ok=st.plate.length===4&&st.item&&st.vehicle&&st.surcharge;
+  var ok=st.plate.length>=1&&st.item&&st.vehicle&&st.surcharge;
   btn.disabled=!ok;
   btn.textContent= ok && !fbReady ? '送信する（Firebase未接続）' : '送信する';
 }
 
 function submitEntry() {
   var plate=st.plate, item=st.item, vehicle=st.vehicle, surcharge=st.surcharge;
-  if (plate.length<4||!item||!vehicle||!surcharge) return;
+  if (plate.length<1||!item||!vehicle||!surcharge) return;
   if (!fbReady) { showToast('Firebase未接続のため送信できません',true); return; }
   var entry={plate:plate,item:item,vehicle:vehicle,surcharge:surcharge,
+    reason:st.reason,memo:st.memo,
     timestamp:new Date().toISOString(),confirmed:false};
   var btn=document.getElementById('sendBtn');
   btn.disabled=true; btn.textContent='送信中…';
@@ -318,7 +349,7 @@ function submitEntry() {
 }
 
 function resetForm() {
-  st={plate:'',item:'',vehicle:'',surcharge:''};
+  st={plate:'',item:'',vehicle:'',surcharge:'',reason:'',memo:''};
   document.getElementById('plateInput').value='';
   ['selItem','selVehicle'].forEach(function(id){
     var e=document.getElementById(id);e.value='';e.className='main-select';e.disabled=false;
@@ -328,6 +359,8 @@ function resetForm() {
   ss.className='main-select';ss.disabled=false;
   updatePreview(); updateSendBtn();
   document.getElementById('sendBtn').textContent='送信する';
+  document.getElementById('selReason').value=''; document.getElementById('selReason').className='main-select';
+  document.getElementById('memoInput').value='';
 }
 
 function addHist(e) {
@@ -383,6 +416,8 @@ function renderCard(e) {
     +'<span class="badge badge-item">'+e.item+'</span>'
     +'<span class="badge badge-vehicle">'+e.vehicle+'</span>'
     +'<span class="badge badge-'+e.surcharge+'">'+scLbl(e.surcharge)+'</span>'
+    +(e.reason?'<span class="badge" style="color:var(--purple,#a78bda);border-color:var(--purple,#a78bda);background:#1e1a2e">'+e.reason+'</span>':'')
+    +(e.memo?'<span style="font-size:11px;color:var(--text2);font-style:italic">'+e.memo+'</span>':'')
     +'</div>'
     +'<div class="entry-actions">'
     +(isNew?'<button class="confirm-btn" onclick="confirmEntry(\''+e.id+'\')">確認</button>':'<span class="confirmed-label">確認済</span>')
