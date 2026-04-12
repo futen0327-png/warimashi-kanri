@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>割増伝達システム</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Share+Tech+Mono&display=swap');
+:root{
+  --bg:#111214;--panel:#1c1e21;--panel2:#242629;--border:#32363b;
+  --accent:#f5a623;--accent2:#e8c547;--red:#e05454;--green:#4caf7d;--blue:#4f8fc4;
+  --text:#e4e6e8;--text2:#7a8090;--text3:#4a505a;
+  --mono:'Share Tech Mono',monospace;--sans:'BIZ UDPGothic',sans-serif;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;}
+
+header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 14px;height:50px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:200;}
+.hd-left{display:flex;align-items:center;gap:10px;}
+.hd-title{font-family:var(--mono);font-size:13px;color:var(--accent);letter-spacing:.08em;}
+.hd-date{font-family:var(--mono);font-size:11px;color:var(--text2);}
+.mode-switch{display:flex;gap:3px;background:var(--bg);border-radius:6px;padding:3px;}
+.mode-btn{padding:5px 13px;border:none;border-radius:4px;font-family:var(--sans);font-size:12px;font-weight:700;cursor:pointer;transition:all .2s;background:transparent;color:var(--text2);}
+.mode-btn.active{background:var(--accent);color:#111;}
+.view-operator,.view-office{display:none;}
+.view-operator.active,.view-office.active{display:block;}
+
+/* FIREBASE STATUS BANNER */
+.fb-banner{padding:8px 14px;font-family:var(--mono);font-size:11px;display:flex;align-items:center;gap:8px;}
+.fb-banner.ok{background:#0d1f15;color:var(--green);border-bottom:1px solid #1a3d28;}
+.fb-banner.ng{background:#1f0d0d;color:var(--red);border-bottom:1px solid #3d1a1a;}
+.fb-dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex-shrink:0;}
+
+/* OPERATOR */
+.op-wrap{max-width:480px;margin:0 auto;padding:12px 12px 24px;}
+.form-card{background:var(--panel);border:1.5px solid var(--border);border-radius:14px;overflow:hidden;margin-bottom:14px;}
+.plate-row{display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--panel2);border-bottom:1px solid var(--border);}
+.plate-label-big{font-family:var(--mono);font-size:11px;color:var(--text2);letter-spacing:.12em;white-space:nowrap;}
+.plate-input{flex:1;max-width:140px;background:var(--bg);border:2px solid var(--border);border-radius:8px;color:var(--accent);font-family:var(--mono);font-size:30px;font-weight:700;padding:6px 10px;text-align:center;letter-spacing:.12em;outline:none;-webkit-appearance:none;transition:border-color .15s;}
+.plate-input:focus{border-color:var(--accent);}
+.plate-input::placeholder{color:var(--text3);font-size:15px;letter-spacing:0;}
+.plate-hint{font-size:11px;color:var(--text3);line-height:1.5;}
+.selects-grid{display:grid;grid-template-columns:1fr 1fr 1fr;}
+.sel-col{padding:10px 8px 10px 10px;border-right:1px solid var(--border);}
+.sel-col:last-child{border-right:none;}
+.sel-label{font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:.1em;margin-bottom:6px;}
+.main-select{width:100%;background:var(--panel2);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--sans);font-size:15px;font-weight:700;padding:10px 22px 10px 6px;text-align:center;-webkit-appearance:none;appearance:none;cursor:pointer;outline:none;transition:border-color .15s,color .15s;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%234a505a'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 5px center;}
+.main-select:focus{border-color:var(--accent);}
+.s-item{border-color:var(--accent)!important;color:var(--accent)!important;}
+.s-vehicle{border-color:var(--blue)!important;color:var(--blue)!important;}
+.s-none,.s-good{border-color:var(--green)!important;color:var(--green)!important;}
+.s-normal{border-color:var(--text2)!important;color:var(--text2)!important;}
+.s-20{border-color:var(--accent2)!important;color:var(--accent2)!important;}
+.s-40{border-color:#e07830!important;color:#e07830!important;}
+.s-bad{border-color:var(--red)!important;color:var(--red)!important;}
+.s-cutting{border-color:var(--blue)!important;color:var(--blue)!important;}
+.preview-bar{padding:10px 16px;background:var(--bg);border-top:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:44px;}
+.preview-empty{font-family:var(--mono);font-size:11px;color:var(--text3);}
+.ptag{display:inline-block;padding:3px 10px;border-radius:4px;font-size:13px;font-weight:700;border:1px solid;}
+.ptag-plate,.ptag-item{color:var(--accent);border-color:var(--accent);background:#2e2410;}
+.ptag-vehicle{color:var(--blue);border-color:var(--blue);background:#131d2a;}
+.ptag-none,.ptag-good{color:var(--green);border-color:var(--green);background:#112218;}
+.ptag-normal{color:var(--text2);border-color:var(--border);background:#202224;}
+.ptag-20{color:var(--accent2);border-color:var(--accent2);background:#252210;}
+.ptag-40{color:#e07830;border-color:#e07830;background:#271d10;}
+.ptag-bad{color:var(--red);border-color:var(--red);background:#271010;}
+.ptag-cutting{color:var(--blue);border-color:var(--blue);background:#131d2a;}
+.send-btn{width:100%;padding:16px;background:var(--accent);color:#111;border:none;border-radius:10px;font-family:var(--sans);font-size:16px;font-weight:700;cursor:pointer;letter-spacing:.05em;transition:all .15s;margin-bottom:16px;}
+.send-btn:disabled{background:var(--border);color:var(--text3);cursor:not-allowed;}
+.send-btn:not(:disabled):active{transform:scale(.98);}
+.history-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
+.history-label{font-family:var(--mono);font-size:10px;color:var(--text3);letter-spacing:.1em;}
+.history-clr{font-family:var(--mono);font-size:10px;color:var(--text3);background:transparent;border:none;cursor:pointer;padding:2px 6px;}
+.history-clr:hover{color:var(--red);}
+.history-list{display:flex;flex-direction:column;gap:6px;}
+.history-item{background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:10px 12px;display:flex;align-items:center;gap:8px;animation:slideIn .25s ease;}
+@keyframes slideIn{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
+.history-plate{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--accent);min-width:50px;letter-spacing:.08em;}
+.history-badges{display:flex;gap:5px;flex-wrap:wrap;flex:1;}
+.history-time{font-family:var(--mono);font-size:10px;color:var(--text3);white-space:nowrap;}
+.history-del{background:transparent;border:1px solid var(--border);border-radius:5px;color:var(--text3);font-size:13px;padding:4px 8px;cursor:pointer;transition:all .15s;flex-shrink:0;}
+.history-del:hover{border-color:var(--red);color:var(--red);}
+.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:700;border:1px solid;}
+.badge-item{color:var(--accent);border-color:var(--accent);background:#2e2410;}
+.badge-vehicle{color:var(--blue);border-color:var(--blue);background:#131d2a;}
+.badge-none,.badge-good{color:var(--green);border-color:var(--green);background:#112218;}
+.badge-normal{color:var(--text2);border-color:var(--border);background:#202224;}
+.badge-20{color:var(--accent2);border-color:var(--accent2);background:#252210;}
+.badge-40{color:#e07830;border-color:#e07830;background:#271d10;}
+.badge-bad{color:var(--red);border-color:var(--red);background:#271010;}
+.badge-cutting{color:var(--blue);border-color:var(--blue);background:#131d2a;}
+
+/* OFFICE */
+.office-wrap{padding:12px;max-width:900px;margin:0 auto;}
+.office-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:10px;flex-wrap:wrap;}
+.live-ind{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:11px;color:var(--green);}
+.live-dot{width:8px;height:8px;background:var(--green);border-radius:50%;animation:pulse 1.5s infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.office-actions{display:flex;gap:6px;flex-wrap:wrap;}
+.act-btn{padding:6px 12px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text2);font-family:var(--sans);font-size:11px;cursor:pointer;transition:all .15s;}
+.act-btn:hover{border-color:var(--red);color:var(--red);}
+.act-btn.ca{border-color:var(--green);color:var(--green);}
+.act-btn.ca:hover{background:var(--green);color:#111;}
+.stats-bar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;}
+.stat-pill{background:var(--panel);border:1px solid var(--border);border-radius:20px;padding:4px 12px;font-family:var(--mono);font-size:11px;color:var(--text2);}
+.stat-pill span{color:var(--text);font-weight:700;}
+.filter-row{display:flex;gap:5px;margin-bottom:12px;flex-wrap:wrap;}
+.filter-btn{padding:4px 10px;border:1px solid var(--border);border-radius:4px;background:transparent;color:var(--text2);font-size:11px;cursor:pointer;transition:all .15s;}
+.filter-btn.active{background:var(--panel2);color:var(--text);border-color:var(--text2);}
+.entries-list{display:flex;flex-direction:column;gap:7px;}
+.entry-card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:11px 14px;display:flex;align-items:center;gap:10px;animation:slideIn .25s ease;transition:all .3s;}
+.entry-card.new{border-color:var(--accent);background:#1f1b0e;}
+.entry-card.confirmed{opacity:.42;}
+.entry-time{font-family:var(--mono);font-size:11px;color:var(--text2);min-width:40px;text-align:center;line-height:1.5;}
+.plate-badge{font-family:var(--mono);font-size:20px;font-weight:700;color:var(--accent);min-width:54px;text-align:center;letter-spacing:.06em;}
+.entry-body{flex:1;display:flex;align-items:center;gap:7px;flex-wrap:wrap;}
+.entry-actions{display:flex;gap:5px;align-items:center;flex-shrink:0;}
+.confirm-btn{padding:6px 12px;background:transparent;border:1.5px solid var(--green);border-radius:6px;color:var(--green);font-family:var(--sans);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;transition:all .15s;}
+.confirm-btn:hover{background:var(--green);color:#111;}
+.delete-btn{padding:6px 10px;background:transparent;border:1.5px solid var(--border);border-radius:6px;color:var(--text3);font-size:14px;cursor:pointer;transition:all .15s;}
+.delete-btn:hover{border-color:var(--red);color:var(--red);}
+.confirmed-label{font-family:var(--mono);font-size:11px;color:var(--text3);}
+.empty-state{text-align:center;padding:60px 20px;color:var(--text2);font-family:var(--mono);font-size:13px;line-height:2;}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(16px);background:var(--green);color:#111;padding:10px 20px;border-radius:8px;font-family:var(--sans);font-size:13px;font-weight:700;opacity:0;transition:all .3s;pointer-events:none;white-space:nowrap;z-index:300;}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.toast.err{background:var(--red);color:#fff;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hd-left">
+    <div class="hd-title">割増伝達</div>
+    <div class="hd-date" id="headerDate"></div>
+  </div>
+  <div class="mode-switch">
+    <button class="mode-btn active" onclick="setMode('operator',this)">オペレーター</button>
+    <button class="mode-btn" onclick="setMode('office',this)">事務所</button>
+  </div>
+</header>
+
+<div id="fbBanner" class="fb-banner ng"><div class="fb-dot"></div><span id="fbMsg">Firebase未接続（Firebaseを設定後に送受信機能が有効になります）</span></div>
+
+<!-- OPERATOR -->
+<div class="view-operator active" id="viewOperator">
+  <div class="op-wrap">
+    <div class="form-card">
+      <div class="plate-row">
+        <span class="plate-label-big">車番</span>
+        <input class="plate-input" id="plateInput"
+          type="tel" inputmode="numeric" maxlength="4" placeholder="0000"
+          oninput="onPlate(this)" onkeypress="return /[0-9]/.test(event.key)">
+        <span class="plate-hint">ナンバー<br>下4桁</span>
+      </div>
+      <div class="selects-grid">
+        <div class="sel-col">
+          <div class="sel-label">ITEM 品目</div>
+          <select class="main-select" id="selItem" onchange="onItem(this)">
+            <option value="">─ 品目 ─</option>
+            <option>コンガラ</option><option>アスガラ</option>
+            <option>残土</option><option>石</option><option>瓦</option>
+          </select>
+        </div>
+        <div class="sel-col">
+          <div class="sel-label">VEHICLE 車種</div>
+          <select class="main-select" id="selVehicle" onchange="onVehicle(this)">
+            <option value="">─ 車種 ─</option>
+            <option>軽</option><option>2t</option><option>4t</option>
+            <option>8t</option><option>10t</option>
+          </select>
+        </div>
+        <div class="sel-col">
+          <div class="sel-label">SURCHARGE 割増</div>
+          <select class="main-select" id="selSur" onchange="onSur(this)">
+            <option value="">─ 割増 ─</option>
+          </select>
+        </div>
+      </div>
+      <div class="preview-bar" id="previewBar">
+        <span class="preview-empty">車番・品目・車種・割増を選択してください</span>
+      </div>
+    </div>
+    <button class="send-btn" id="sendBtn" disabled onclick="submitEntry()">送信する</button>
+    <div class="history-header">
+      <span class="history-label">RECENT — 送信履歴（最新5件）</span>
+      <button class="history-clr" onclick="clearHistory()">クリア</button>
+    </div>
+    <div class="history-list" id="historyList">
+      <div style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:10px 4px;">送信すると履歴が表示されます</div>
+    </div>
+  </div>
+</div>
+
+<!-- OFFICE -->
+<div class="view-office" id="viewOffice">
+  <div class="office-wrap">
+    <div class="office-top">
+      <div class="live-ind"><div class="live-dot"></div>LIVE</div>
+      <div class="office-actions">
+        <button class="act-btn ca" onclick="confirmAll()">全て確認済み</button>
+        <button class="act-btn" onclick="clearConfirmed()">確認済み削除</button>
+      </div>
+    </div>
+    <div class="stats-bar" id="statsBar"></div>
+    <div class="filter-row">
+      <button class="filter-btn active" onclick="setFilter('all',this)">すべて</button>
+      <button class="filter-btn" onclick="setFilter('new',this)">未確認</button>
+      <button class="filter-btn" onclick="setFilter('コンガラ',this)">コンガラ</button>
+      <button class="filter-btn" onclick="setFilter('アスガラ',this)">アスガラ</button>
+      <button class="filter-btn" onclick="setFilter('残土',this)">残土</button>
+      <button class="filter-btn" onclick="setFilter('石',this)">石</button>
+      <button class="filter-btn" onclick="setFilter('瓦',this)">瓦</button>
+    </div>
+    <div class="entries-list" id="entriesList"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- ============================================================
+     通常JSで割増ロジック・UI操作（Firebaseとは独立して動く）
+     ============================================================ -->
+<script>
+// 割増ロジック（Firebase不要、ここだけで動く）
+function getSurOpts(item, vehicle) {
+  if (!item || !vehicle) return [];
+  if (item==='石'||item==='瓦') return [{k:'none',l:'割増なし'}];
+  if (vehicle==='10t') {
+    if (item==='アスガラ') return [
+      {k:'cutting',l:'切削'},{k:'normal',l:'普通'},
+      {k:'20',l:'2割'},{k:'40',l:'4割'},{k:'bad',l:'不良'}
+    ];
+    return [
+      {k:'good',l:'良'},{k:'normal',l:'普通'},
+      {k:'20',l:'2割'},{k:'40',l:'4割'},{k:'bad',l:'不良'}
+    ];
+  }
+  return [
+    {k:'none',l:'割増なし'},{k:'20',l:'2割'},
+    {k:'40',l:'4割'},{k:'bad',l:'不良'}
+  ];
+}
+
+var st = {plate:'',item:'',vehicle:'',surcharge:''};
+var localHist = [];
+var fbReady = false; // Firebase接続フラグ
+
+function onPlate(el) {
+  st.plate = el.value.replace(/\D/g,'').slice(0,4); el.value=st.plate;
+  updatePreview(); updateSendBtn();
+}
+function onItem(el) {
+  st.item=el.value; st.surcharge='';
+  el.className='main-select'+(el.value?' s-item':'');
+  rebuildSur(); updatePreview(); updateSendBtn();
+}
+function onVehicle(el) {
+  st.vehicle=el.value; st.surcharge='';
+  el.className='main-select'+(el.value?' s-vehicle':'');
+  rebuildSur(); updatePreview(); updateSendBtn();
+}
+function onSur(el) {
+  st.surcharge=el.value;
+  el.className='main-select'+(el.value?' s-'+el.value:'');
+  updatePreview(); updateSendBtn();
+}
+
+function rebuildSur() {
+  var sel=document.getElementById('selSur');
+  var opts=getSurOpts(st.item,st.vehicle);
+  sel.innerHTML='<option value="">─ 割増 ─</option>'+opts.map(function(o){
+    return '<option value="'+o.k+'">'+o.l+'</option>';
+  }).join('');
+  sel.disabled=false; sel.className='main-select'; st.surcharge='';
+  if (st.item==='石'||st.item==='瓦') {
+    sel.value='none'; st.surcharge='none';
+    sel.disabled=true; sel.className='main-select s-none';
+    updatePreview(); updateSendBtn();
+  }
+}
+
+function updatePreview() {
+  var bar=document.getElementById('previewBar');
+  var plate=st.plate, item=st.item, vehicle=st.vehicle, surcharge=st.surcharge;
+  if (!plate&&!item&&!vehicle) {
+    bar.innerHTML='<span class="preview-empty">車番・品目・車種・割増を選択してください</span>'; return;
+  }
+  var h='';
+  if (plate)     h+='<span class="ptag ptag-plate">'+plate+'</span>';
+  if (item)      h+='<span class="ptag ptag-item">'+item+'</span>';
+  if (vehicle)   h+='<span class="ptag ptag-vehicle">'+vehicle+'</span>';
+  if (surcharge) h+='<span class="ptag ptag-'+surcharge+'">'+scLbl(surcharge)+'</span>';
+  bar.innerHTML=h;
+}
+
+function updateSendBtn() {
+  var btn=document.getElementById('sendBtn');
+  var ok=st.plate.length===4&&st.item&&st.vehicle&&st.surcharge;
+  btn.disabled=!ok;
+  btn.textContent= ok && !fbReady ? '送信する（Firebase未接続）' : '送信する';
+}
+
+function submitEntry() {
+  var plate=st.plate, item=st.item, vehicle=st.vehicle, surcharge=st.surcharge;
+  if (plate.length<4||!item||!vehicle||!surcharge) return;
+  if (!fbReady) { showToast('Firebase未接続のため送信できません',true); return; }
+  var entry={plate:plate,item:item,vehicle:vehicle,surcharge:surcharge,
+    timestamp:new Date().toISOString(),confirmed:false};
+  var btn=document.getElementById('sendBtn');
+  btn.disabled=true; btn.textContent='送信中…';
+  fbPush(entry).then(function(){
+    showToast(plate+' 送信しました');
+    addHist(entry); resetForm();
+  }).catch(function(){
+    showToast('送信エラー。再試行してください',true);
+    btn.disabled=false; btn.textContent='送信する';
+  });
+}
+
+function resetForm() {
+  st={plate:'',item:'',vehicle:'',surcharge:''};
+  document.getElementById('plateInput').value='';
+  ['selItem','selVehicle'].forEach(function(id){
+    var e=document.getElementById(id);e.value='';e.className='main-select';e.disabled=false;
+  });
+  var ss=document.getElementById('selSur');
+  ss.innerHTML='<option value="">─ 割増 ─</option>';
+  ss.className='main-select';ss.disabled=false;
+  updatePreview(); updateSendBtn();
+  document.getElementById('sendBtn').textContent='送信する';
+}
+
+function addHist(e) {
+  localHist.unshift(e); if (localHist.length>5) localHist.pop(); renderHist();
+}
+function renderHist() {
+  var el=document.getElementById('historyList');
+  if (!localHist.length) {
+    el.innerHTML='<div style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:10px 4px;">送信すると履歴が表示されます</div>';
+    return;
+  }
+  el.innerHTML=localHist.map(function(e,i){
+    var d=new Date(e.timestamp);
+    var t=pad(d.getHours())+':'+pad(d.getMinutes());
+    return '<div class="history-item">'
+      +'<div class="history-plate">'+e.plate+'</div>'
+      +'<div class="history-badges">'
+      +'<span class="badge badge-item">'+e.item+'</span>'
+      +'<span class="badge badge-vehicle">'+e.vehicle+'</span>'
+      +'<span class="badge badge-'+e.surcharge+'">'+scLbl(e.surcharge)+'</span>'
+      +'</div>'
+      +'<div class="history-time">'+t+'</div>'
+      +'<button class="history-del" onclick="delHist('+i+')">✕</button>'
+      +'</div>';
+  }).join('');
+}
+function delHist(i){localHist.splice(i,1);renderHist();}
+function clearHistory(){localHist=[];renderHist();}
+
+// 事務所
+var allEntries=[]; var cf='all';
+function renderOffice() {
+  var list=allEntries.slice().reverse();
+  if (cf==='new') list=list.filter(function(e){return !e.confirmed;});
+  else if (cf!=='all') list=list.filter(function(e){return e.item===cf;});
+  var el=document.getElementById('entriesList');
+  if (!list.length) {
+    el.innerHTML='<div class="empty-state">荷受け記録がありません<br>オペレーターからの送信をお待ちください</div>';
+  } else {
+    el.innerHTML=list.map(renderCard).join('');
+  }
+  renderStats();
+}
+function renderCard(e) {
+  var d=new Date(e.timestamp);
+  var t=pad(d.getHours())+':'+pad(d.getMinutes());
+  var dt=(d.getMonth()+1)+'/'+d.getDate();
+  var isNew=!e.confirmed;
+  return '<div class="entry-card '+(isNew?'new':'confirmed')+'" id="card-'+e.id+'">'
+    +'<div class="entry-time">'+dt+'<br>'+t+'</div>'
+    +'<div class="plate-badge">'+(e.plate||'----')+'</div>'
+    +'<div class="entry-body">'
+    +'<span class="badge badge-item">'+e.item+'</span>'
+    +'<span class="badge badge-vehicle">'+e.vehicle+'</span>'
+    +'<span class="badge badge-'+e.surcharge+'">'+scLbl(e.surcharge)+'</span>'
+    +'</div>'
+    +'<div class="entry-actions">'
+    +(isNew?'<button class="confirm-btn" onclick="confirmEntry(\''+e.id+'\')">確認</button>':'<span class="confirmed-label">確認済</span>')
+    +'<button class="delete-btn" onclick="deleteEntry(\''+e.id+'\')">🗑</button>'
+    +'</div></div>';
+}
+function renderStats() {
+  var now=new Date();
+  var today=allEntries.filter(function(e){return new Date(e.timestamp).toDateString()===now.toDateString();}).length;
+  var unconf=allEntries.filter(function(e){return !e.confirmed;}).length;
+  document.getElementById('statsBar').innerHTML=
+    '<div class="stat-pill">本日 <span>'+today+'件</span></div>'
+    +'<div class="stat-pill">未確認 <span style="color:var(--accent)">'+unconf+'件</span></div>'
+    +'<div class="stat-pill">累計 <span>'+allEntries.length+'件</span></div>';
+}
+
+function confirmEntry(id){if(fbReady)fbConfirm(id);}
+function deleteEntry(id){if(fbReady)fbDelete(id);}
+function confirmAll(){
+  if(!fbReady) return;
+  var ids=allEntries.filter(function(e){return !e.confirmed;}).map(function(e){return e.id;});
+  if(!ids.length) return;
+  fbConfirmAll(ids).then(function(){showToast('全て確認済みにしました');});
+}
+function clearConfirmed(){
+  if(!fbReady) return;
+  var targets=allEntries.filter(function(e){return e.confirmed;});
+  if(!targets.length){showToast('確認済みの記録がありません');return;}
+  if(!confirm('確認済み '+targets.length+'件 を削除しますか？')) return;
+  fbDeleteMany(targets.map(function(e){return e.id;})).then(function(){showToast('削除しました');});
+}
+function setFilter(f,btn){
+  cf=f;
+  document.querySelectorAll('.filter-btn').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active'); renderOffice();
+}
+
+function setMode(mode,btn){
+  document.querySelectorAll('.mode-btn').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  document.getElementById('viewOperator').classList.toggle('active',mode==='operator');
+  document.getElementById('viewOffice').classList.toggle('active',mode==='office');
+}
+
+function scLbl(k){
+  var m={none:'割増なし',good:'良',normal:'普通',cutting:'切削','20':'2割','40':'4割',bad:'不良'};
+  return m[k]||k;
+}
+function pad(n){return String(n).padStart(2,'0');}
+function showToast(msg,isErr){
+  var t=document.getElementById('toast');
+  t.textContent=msg; t.className='toast show'+(isErr?' err':'');
+  setTimeout(function(){t.className='toast';},2500);
+}
+function updateDate(){
+  var now=new Date(); var day=['日','月','火','水','木','金','土'][now.getDay()];
+  document.getElementById('headerDate').textContent=(now.getMonth()+1)+'/'+now.getDate()+'('+day+')';
+}
+updateDate(); setInterval(updateDate,60000);
+
+// Firebase関数のスタブ（接続前は何もしない）
+var fbPush=function(){return Promise.reject('未接続');};
+var fbConfirm=function(){};
+var fbDelete=function(){};
+var fbConfirmAll=function(){return Promise.resolve();};
+var fbDeleteMany=function(){return Promise.resolve();};
+</script>
+
+<!-- ============================================================
+     Firebase（設定後に有効化される）
+     ============================================================ -->
+<script type="module">
+var FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCeUz-n_OZffE3vajXHsbN6kV_G93R0944",
+  authDomain: "yotei-kanri.firebaseapp.com",
+  databaseURL: "https://yotei-kanri-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "yotei-kanri",
+  storageBucket: "yotei-kanri.firebasestorage.app",
+  messagingSenderId: "403879407337",
+  appId: "1:403879407337:web:fa08c4fededd5e42ddca78"
+};
+
+// 設定が入っていない場合は接続しない
+if (FIREBASE_CONFIG.apiKey === 'YOUR_API_KEY') {
+  console.warn('Firebase未設定');
+} else {
+  try {
+    var { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
+    var { getDatabase, ref, push, onValue, update } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js");
+
+    var app   = initializeApp(FIREBASE_CONFIG);
+    var db    = getDatabase(app);
+    var dbRef = ref(db, 'warashi_entries');
+
+    // Firebase関数を本物に差し替え
+    window.fbPush = function(entry){ return push(dbRef, entry); };
+    window.fbConfirm = function(id){ update(ref(db,'warashi_entries/'+id),{confirmed:true}); };
+    window.fbDelete = function(id){ var u={}; u['warashi_entries/'+id]=null; update(ref(db),u); };
+    window.fbConfirmAll = function(ids){
+      var u={}; ids.forEach(function(id){u['warashi_entries/'+id+'/confirmed']=true;});
+      return update(ref(db),u);
+    };
+    window.fbDeleteMany = function(ids){
+      var u={}; ids.forEach(function(id){u['warashi_entries/'+id]=null;});
+      return update(ref(db),u);
+    };
+
+    // リアルタイム受信
+    onValue(dbRef, function(snap) {
+      window.allEntries=[];
+      snap.forEach(function(c){window.allEntries.push(Object.assign({id:c.key},c.val()));});
+      window.renderOffice();
+      var u=window.allEntries.filter(function(e){return !e.confirmed;}).length;
+      document.title=u>0?'('+u+') 割増伝達':'割増伝達システム';
+    });
+
+    // バナーを接続済みに更新
+    window.fbReady = true;
+    var banner = document.getElementById('fbBanner');
+    banner.className = 'fb-banner ok';
+    document.getElementById('fbMsg').textContent = 'Firebase接続済み — リアルタイム同期中';
+    window.updateSendBtn();
+
+  } catch(e) {
+    console.error('Firebase接続エラー:', e);
+  }
+}
+</script>
+</body>
+</html>
