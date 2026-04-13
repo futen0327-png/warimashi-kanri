@@ -304,14 +304,20 @@ function onPlate(el) {
   updatePreview(); updateSendBtn();
 }
 function onItem(el) {
-  st.item=el.value; st.surcharge='';
-  el.className='main-select'+(el.value?' s-item':'');
-  rebuildSur(); updatePreview(); updateSendBtn();
+  st.item = el.value;
+  st.surcharge = '';
+  el.className = 'main-select' + (el.value ? ' s-item' : '');
+  rebuildSur();
+  updatePreview();
+  updateSendBtn();
 }
 function onVehicle(el) {
-  st.vehicle=el.value; st.surcharge='';
-  el.className='main-select'+(el.value?' s-vehicle':'');
-  rebuildSur(); updatePreview(); updateSendBtn();
+  st.vehicle = el.value;
+  st.surcharge = '';
+  el.className = 'main-select' + (el.value ? ' s-vehicle' : '');
+  rebuildSur();
+  updatePreview();
+  updateSendBtn();
 }
 function onSur(el) {
   st.surcharge=el.value;
@@ -342,16 +348,30 @@ function onMemo(el) {
 }
 
 function rebuildSur() {
-  var sel=document.getElementById('selSur');
-  var opts=getSurOpts(st.item,st.vehicle);
-  sel.innerHTML='<option value="">─ 割増 ─</option>'+opts.map(function(o){
-    return '<option value="'+o.k+'">'+o.l+'</option>';
-  }).join('');
-  sel.disabled=false; sel.className='main-select'; st.surcharge='';
-  if (st.item==='石'||st.item==='瓦') {
-    sel.value='none'; st.surcharge='none';
-    sel.disabled=true; sel.className='main-select s-none';
-    updatePreview(); updateSendBtn();
+  var sel = document.getElementById('selSur');
+  var opts = getSurOpts(st.item, st.vehicle);
+
+  // まず完全リセット
+  sel.disabled = false;
+  sel.removeAttribute('disabled');
+  sel.className = 'main-select';
+  st.surcharge = '';
+
+  // 選択肢を再構築
+  var html_opts = '<option value="">─ 割増 ─</option>';
+  for (var i = 0; i < opts.length; i++) {
+    html_opts += '<option value="' + opts[i].k + '">' + opts[i].l + '</option>';
+  }
+  sel.innerHTML = html_opts;
+
+  // 石・瓦は割増なし固定
+  if (st.item === '石' || st.item === '瓦') {
+    sel.value = 'none';
+    st.surcharge = 'none';
+    sel.disabled = true;
+    sel.className = 'main-select s-none';
+    updatePreview();
+    updateSendBtn();
   }
 }
 
@@ -420,41 +440,45 @@ function isSentDuplicate(entry) {
 function renderSentHist() {
   var el = document.getElementById('sentHistList');
   if (!sentHist.length) {
-    el.innerHTML='<div style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:10px 4px;">送信すると履歴が表示されます</div>';
+    el.innerHTML = '<div style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:10px 4px;">送信すると履歴が表示されます</div>';
     return;
   }
   var list = sentHist.slice().reverse();
-  el.innerHTML = list.map(function(e) {
+  var out = '';
+  for (var i = 0; i < list.length; i++) {
+    var e = list[i];
     var d = new Date(e.timestamp);
-    var t = pad(d.getHours())+':'+pad(d.getMinutes());
-    var reasonBadges = e.reasons
-      ? e.reasons.split(',').filter(function(r){return r;}).map(function(r){
-          return '<span class="badge" style="color:#a78bda;border-color:#a78bda;background:#1e1a2e">'+r+'</span>';
-        }).join('')
-      : '';
-    var memoBadge = e.memo
-      ? '<span style="font-size:11px;color:var(--text2);font-style:italic">'+e.memo+'</span>'
-      : '';
-    return '<div class="sent-item" id="sh-'+e.id+'">'
-      +'<input type="checkbox" class="sent-item-cb" id="cb-'+e.id+'">'
-      +'<div class="sent-item-body">'
-      +'<div class="sent-item-top">'
-      +'<span class="sent-plate">'+e.plate+'</span>'
-      +'<span class="sent-item-time">'+t+'</span>'
-      +'</div>'
-      +'<div class="sent-item-badges">'
-      +'<span class="badge badge-item">'+e.item+'</span>'
-      +'<span class="badge badge-vehicle">'+e.vehicle+'</span>'
-      +'<span class="badge badge-'+e.surcharge+'">'+scLbl(e.surcharge)+'</span>'
-      +reasonBadges+memoBadge
-      +'</div>'
-      +'</div>'
-      +'<div class="sent-item-actions">'
-      +'<button type="button" class="sent-copy-btn" onclick="copyToForm(''+e.id+'')">コピー</button>'
-      +'<button type="button" class="sent-del-btn" onclick="deleteSentItem(''+e.id+'')">✕</button>'
-      +'</div>'
-      +'</div>';
-  }).join('');
+    var t = pad(d.getHours()) + ':' + pad(d.getMinutes());
+    var reasonBadges = '';
+    if (e.reasons) {
+      var rArr = e.reasons.split(',').filter(function(r){return r;});
+      for (var j = 0; j < rArr.length; j++) {
+        reasonBadges += '<span class="badge" style="color:#a78bda;border-color:#a78bda;background:#1e1a2e">' + rArr[j] + '</span>';
+      }
+    }
+    var memoBadge = e.memo ? '<span style="font-size:11px;color:var(--text2);font-style:italic">' + e.memo + '</span>' : '';
+    var eid = e.id;
+    out += '<div class="sent-item" id="sh-' + eid + '">';
+    out += '<input type="checkbox" class="sent-item-cb" id="cb-' + eid + '">';
+    out += '<div class="sent-item-body">';
+    out += '<div class="sent-item-top">';
+    out += '<span class="sent-plate">' + e.plate + '</span>';
+    out += '<span class="sent-item-time">' + t + '</span>';
+    out += '</div>';
+    out += '<div class="sent-item-badges">';
+    out += '<span class="badge badge-item">' + e.item + '</span>';
+    out += '<span class="badge badge-vehicle">' + e.vehicle + '</span>';
+    out += '<span class="badge badge-' + e.surcharge + '">' + scLbl(e.surcharge) + '</span>';
+    out += reasonBadges + memoBadge;
+    out += '</div>';
+    out += '</div>';
+    out += '<div class="sent-item-actions">';
+    out += '<button type="button" class="sent-copy-btn" data-id="' + eid + '" onclick="copyToForm(this.dataset.id)">コピー</button>';
+    out += '<button type="button" class="sent-del-btn" data-id="' + eid + '" onclick="deleteSentItem(this.dataset.id)">✕</button>';
+    out += '</div>';
+    out += '</div>';
+  }
+  el.innerHTML = out;
 }
 
 function copyToForm(id) {
