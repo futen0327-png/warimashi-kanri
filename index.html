@@ -166,8 +166,8 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
     <div class="hd-date" id="headerDate"></div>
   </div>
   <div class="mode-switch">
-    <button class="mode-btn active" onclick="setMode('operator',this)">オペレーター</button>
-    <button class="mode-btn" onclick="setMode('office',this)">事務所</button>
+    <button type="button" class="mode-btn active" onclick="setMode('operator',this)">オペレーター</button>
+    <button type="button" class="mode-btn" onclick="setMode('office',this)">事務所</button>
   </div>
 </header>
 
@@ -212,14 +212,14 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
       <div class="reason-area">
         <div class="reason-label">REASON 割増理由（任意・最大4つ）<span class="reason-count" id="reasonCount"></span></div>
         <div class="reason-btns" id="reasonBtns">
-          <button class="reason-btn" onclick="toggleReason(this,'大きさ')">大きさ</button>
-          <button class="reason-btn" onclick="toggleReason(this,'有筋')">有筋</button>
-          <button class="reason-btn" onclick="toggleReason(this,'鉄筋')">鉄筋</button>
-          <button class="reason-btn" onclick="toggleReason(this,'木くず')">木くず</button>
-          <button class="reason-btn" onclick="toggleReason(this,'ゴム')">ゴム</button>
-          <button class="reason-btn" onclick="toggleReason(this,'プラスチック')">プラスチック</button>
-          <button class="reason-btn" onclick="toggleReason(this,'ゴミ')">ゴミ</button>
-          <button class="reason-btn" onclick="toggleReason(this,'その他')">その他</button>
+          <button type="button" class="reason-btn" onclick="toggleReason(this,'大きさ')">大きさ</button>
+          <button type="button" class="reason-btn" onclick="toggleReason(this,'有筋')">有筋</button>
+          <button type="button" class="reason-btn" onclick="toggleReason(this,'鉄筋')">鉄筋</button>
+          <button type="button" class="reason-btn" onclick="toggleReason(this,'木くず')">木くず</button>
+          <button type="button" class="reason-btn" onclick="toggleReason(this,'ゴム')">ゴム</button>
+          <button type="button" class="reason-btn" onclick="toggleReason(this,'プラスチック')">プラスチック</button>
+          <button type="button" class="reason-btn" onclick="toggleReason(this,'ゴミ')">ゴミ</button>
+          <button type="button" class="reason-btn" onclick="toggleReason(this,'その他')">その他</button>
         </div>
       </div>
       <!-- 備考 -->
@@ -232,12 +232,12 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
       </div>
     </div>
     <div class="send-row">
-      <button class="form-clear-btn" onclick="clearForm()">消去</button>
-      <button class="send-btn" id="sendBtn" disabled onclick="submitEntry()">送信する</button>
+      <button type="button" class="form-clear-btn" onclick="clearForm()">消去</button>
+      <button type="button" class="send-btn" id="sendBtn" disabled onclick="submitEntry()">送信する</button>
     </div>
     <div class="sent-hist-header">
       <span class="sent-hist-label">SENT HISTORY — 送信履歴（コピー用）</span>
-      <button class="sent-bulk-del" onclick="bulkDeleteSent()">一括消去</button>
+      <button type="button" class="sent-bulk-del" onclick="bulkDeleteSent()">一括消去</button>
     </div>
     <div id="sentHistList">
       <div style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:10px 4px;">送信すると履歴が表示されます</div>
@@ -251,19 +251,19 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
     <div class="office-top">
       <div class="live-ind"><div class="live-dot"></div>LIVE</div>
       <div class="office-actions">
-        <button class="act-btn ca" onclick="confirmAll()">全て確認済み</button>
-        <button class="act-btn" onclick="clearConfirmed()">確認済み削除</button>
+        <button type="button" class="act-btn ca" onclick="confirmAll()">全て確認済み</button>
+        <button type="button" class="act-btn" onclick="clearConfirmed()">確認済み削除</button>
       </div>
     </div>
     <div class="stats-bar" id="statsBar"></div>
     <div class="filter-row">
-      <button class="filter-btn active" onclick="setFilter('all',this)">すべて</button>
-      <button class="filter-btn" onclick="setFilter('new',this)">未確認</button>
-      <button class="filter-btn" onclick="setFilter('コンガラ',this)">コンガラ</button>
-      <button class="filter-btn" onclick="setFilter('アスガラ',this)">アスガラ</button>
-      <button class="filter-btn" onclick="setFilter('残土',this)">残土</button>
-      <button class="filter-btn" onclick="setFilter('石',this)">石</button>
-      <button class="filter-btn" onclick="setFilter('瓦',this)">瓦</button>
+      <button type="button" class="filter-btn active" onclick="setFilter('all',this)">すべて</button>
+      <button type="button" class="filter-btn" onclick="setFilter('new',this)">未確認</button>
+      <button type="button" class="filter-btn" onclick="setFilter('コンガラ',this)">コンガラ</button>
+      <button type="button" class="filter-btn" onclick="setFilter('アスガラ',this)">アスガラ</button>
+      <button type="button" class="filter-btn" onclick="setFilter('残土',this)">残土</button>
+      <button type="button" class="filter-btn" onclick="setFilter('石',this)">石</button>
+      <button type="button" class="filter-btn" onclick="setFilter('瓦',this)">瓦</button>
     </div>
     <div class="entries-list" id="entriesList"></div>
   </div>
@@ -450,8 +450,8 @@ function renderSentHist() {
       +'</div>'
       +'</div>'
       +'<div class="sent-item-actions">'
-      +'<button class="sent-copy-btn" onclick="copyToForm(''+e.id+'')">コピー</button>'
-      +'<button class="sent-del-btn" onclick="deleteSentItem(''+e.id+'')">✕</button>'
+      +'<button type="button" class="sent-copy-btn" onclick="copyToForm(''+e.id+'')">コピー</button>'
+      +'<button type="button" class="sent-del-btn" onclick="deleteSentItem(''+e.id+'')">✕</button>'
       +'</div>'
       +'</div>';
   }).join('');
@@ -558,8 +558,8 @@ function renderCard(e) {
     +(e.memo?'<span style="font-size:11px;color:var(--text2);font-style:italic">'+e.memo+'</span>':'')
     +'</div>'
     +'<div class="entry-actions">'
-    +(isNew?'<button class="confirm-btn" onclick="confirmEntry(\''+e.id+'\')">確認</button>':'<span class="confirmed-label">確認済</span>')
-    +'<button class="delete-btn" onclick="deleteEntry(\''+e.id+'\')">🗑</button>'
+    +(isNew?'<button type="button" class="confirm-btn" onclick="confirmEntry(\''+e.id+'\')">確認</button>':'<span class="confirmed-label">確認済</span>')
+    +'<button type="button" class="delete-btn" onclick="deleteEntry(\''+e.id+'\')">🗑</button>'
     +'</div></div>';
 }
 function renderStats() {
