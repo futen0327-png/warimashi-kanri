@@ -134,6 +134,28 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
 .reason-btn{padding:7px 12px;border:1.5px solid var(--border);border-radius:6px;background:var(--panel2);color:var(--text2);font-family:var(--sans);font-size:13px;font-weight:700;cursor:pointer;transition:all .15s;-webkit-tap-highlight-color:transparent;}
 .reason-btn.selected{background:#1e1a2e;border-color:#a78bda;color:#a78bda;}
 .reason-count{font-family:var(--mono);font-size:10px;color:var(--text3);margin-left:4px;}
+/* 送信履歴（warashi_sent） */
+.sent-hist-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;margin-top:16px;}
+.sent-hist-label{font-family:var(--mono);font-size:10px;color:var(--text3);letter-spacing:.1em;}
+.sent-bulk-del{font-family:var(--sans);font-size:11px;font-weight:700;color:var(--red);background:transparent;border:1px solid var(--red);border-radius:5px;padding:4px 10px;cursor:pointer;transition:all .15s;}
+.sent-bulk-del:hover{background:var(--red);color:#111;}
+.sent-item{background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:10px 10px 10px 8px;display:flex;align-items:flex-start;gap:8px;animation:slideIn .25s ease;margin-bottom:6px;}
+.sent-item-cb{margin-top:3px;width:18px;height:18px;accent-color:var(--accent);cursor:pointer;flex-shrink:0;}
+.sent-item-body{flex:1;min-width:0;}
+.sent-item-top{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px;}
+.sent-plate{font-family:var(--mono);font-size:17px;font-weight:700;color:var(--accent);letter-spacing:.08em;}
+.sent-item-time{font-family:var(--mono);font-size:10px;color:var(--text3);}
+.sent-item-badges{display:flex;gap:4px;flex-wrap:wrap;}
+.sent-item-actions{display:flex;flex-direction:column;gap:5px;flex-shrink:0;}
+.sent-copy-btn{padding:6px 10px;background:transparent;border:1.5px solid var(--blue);border-radius:6px;color:var(--blue);font-family:var(--sans);font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;transition:all .15s;}
+.sent-copy-btn:hover{background:var(--blue);color:#111;}
+.sent-del-btn{padding:6px 10px;background:transparent;border:1.5px solid var(--border);border-radius:6px;color:var(--text3);font-size:13px;cursor:pointer;transition:all .15s;}
+.sent-del-btn:hover{border-color:var(--red);color:var(--red);}
+/* フォーム消去ボタン */
+.form-clear-btn{padding:14px;background:transparent;border:1.5px solid var(--border);border-radius:10px;color:var(--text2);font-family:var(--sans);font-size:14px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.form-clear-btn:hover{border-color:var(--red);color:var(--red);}
+.send-row{display:flex;gap:8px;margin-bottom:16px;}
+.send-row .send-btn{margin-bottom:0;}
 </style>
 </head>
 <body>
@@ -209,12 +231,15 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
         <span class="preview-empty">車番・品目・車種・割増を選択してください</span>
       </div>
     </div>
-    <button class="send-btn" id="sendBtn" disabled onclick="submitEntry()">送信する</button>
-    <div class="history-header">
-      <span class="history-label">RECENT — 送信履歴（最新5件）</span>
-      <button class="history-clr" onclick="clearHistory()">クリア</button>
+    <div class="send-row">
+      <button class="form-clear-btn" onclick="clearForm()">消去</button>
+      <button class="send-btn" id="sendBtn" disabled onclick="submitEntry()">送信する</button>
     </div>
-    <div class="history-list" id="historyList">
+    <div class="sent-hist-header">
+      <span class="sent-hist-label">SENT HISTORY — 送信履歴（コピー用）</span>
+      <button class="sent-bulk-del" onclick="bulkDeleteSent()">一括消去</button>
+    </div>
+    <div id="sentHistList">
       <div style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:10px 4px;">送信すると履歴が表示されます</div>
     </div>
   </div>
@@ -364,7 +389,11 @@ function submitEntry() {
   btn.disabled=true; btn.textContent='送信中…';
   fbPush(entry).then(function(){
     showToast(plate+' 送信しました');
-    addHist(entry); resetForm();
+    // warashi_sentに保存（重複チェック後）
+    if (!isSentDuplicate(entry) && window.fbSentPush) {
+      window.fbSentPush(entry);
+    }
+    resetForm();
   }).catch(function(){
     showToast('送信エラー。再試行してください',true);
     btn.disabled=false; btn.textContent='送信する';
@@ -372,6 +401,119 @@ function submitEntry() {
 }
 
 function resetForm() {
+  clearForm();
+  document.getElementById('sendBtn').textContent='送信する';
+}
+
+// ===== 送信履歴（warashi_sent） =====
+var sentHist = []; // Firebase warashi_sent から読み込む
+
+function isSentDuplicate(entry) {
+  return sentHist.some(function(e) {
+    return e.plate===entry.plate && e.item===entry.item &&
+           e.vehicle===entry.vehicle && e.surcharge===entry.surcharge &&
+           (e.reasons||'')===(entry.reasons||'') &&
+           (e.memo||'')===(entry.memo||'');
+  });
+}
+
+function renderSentHist() {
+  var el = document.getElementById('sentHistList');
+  if (!sentHist.length) {
+    el.innerHTML='<div style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:10px 4px;">送信すると履歴が表示されます</div>';
+    return;
+  }
+  var list = sentHist.slice().reverse();
+  el.innerHTML = list.map(function(e) {
+    var d = new Date(e.timestamp);
+    var t = pad(d.getHours())+':'+pad(d.getMinutes());
+    var reasonBadges = e.reasons
+      ? e.reasons.split(',').filter(function(r){return r;}).map(function(r){
+          return '<span class="badge" style="color:#a78bda;border-color:#a78bda;background:#1e1a2e">'+r+'</span>';
+        }).join('')
+      : '';
+    var memoBadge = e.memo
+      ? '<span style="font-size:11px;color:var(--text2);font-style:italic">'+e.memo+'</span>'
+      : '';
+    return '<div class="sent-item" id="sh-'+e.id+'">'
+      +'<input type="checkbox" class="sent-item-cb" id="cb-'+e.id+'">'
+      +'<div class="sent-item-body">'
+      +'<div class="sent-item-top">'
+      +'<span class="sent-plate">'+e.plate+'</span>'
+      +'<span class="sent-item-time">'+t+'</span>'
+      +'</div>'
+      +'<div class="sent-item-badges">'
+      +'<span class="badge badge-item">'+e.item+'</span>'
+      +'<span class="badge badge-vehicle">'+e.vehicle+'</span>'
+      +'<span class="badge badge-'+e.surcharge+'">'+scLbl(e.surcharge)+'</span>'
+      +reasonBadges+memoBadge
+      +'</div>'
+      +'</div>'
+      +'<div class="sent-item-actions">'
+      +'<button class="sent-copy-btn" onclick="copyToForm(''+e.id+'')">コピー</button>'
+      +'<button class="sent-del-btn" onclick="deleteSentItem(''+e.id+'')">✕</button>'
+      +'</div>'
+      +'</div>';
+  }).join('');
+}
+
+function copyToForm(id) {
+  var e = sentHist.find(function(h){return h.id===id;});
+  if (!e) return;
+  // フォームにセット
+  document.getElementById('plateInput').value = e.plate;
+  st.plate = e.plate;
+  var si = document.getElementById('selItem');
+  si.value = e.item; st.item = e.item;
+  si.className = 'main-select'+(e.item?' s-item':'');
+  var sv = document.getElementById('selVehicle');
+  sv.value = e.vehicle; st.vehicle = e.vehicle;
+  sv.className = 'main-select'+(e.vehicle?' s-vehicle':'');
+  // 割増再構築してセット
+  rebuildSur();
+  var ss = document.getElementById('selSur');
+  ss.value = e.surcharge; st.surcharge = e.surcharge;
+  ss.className = 'main-select'+(e.surcharge?' s-'+e.surcharge:'');
+  // 割増理由
+  st.reasons = e.reasons ? e.reasons.split(',').filter(function(r){return r;}) : [];
+  document.querySelectorAll('.reason-btn').forEach(function(b){
+    var val = b.textContent.trim();
+    if (st.reasons.indexOf(val) >= 0) b.classList.add('selected');
+    else b.classList.remove('selected');
+  });
+  var rc = document.getElementById('reasonCount');
+  if (rc) rc.textContent = st.reasons.length > 0 ? ' ('+st.reasons.length+'/4)' : '';
+  // 備考
+  st.memo = e.memo || '';
+  document.getElementById('memoInput').value = st.memo;
+  updatePreview(); updateSendBtn();
+  showToast('入力窓にコピーしました');
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+function deleteSentItem(id) {
+  if (window.fbSentDelete) {
+    window.fbSentDelete(id);
+  }
+}
+
+function bulkDeleteSent() {
+  var checked = sentHist.filter(function(e){
+    var cb = document.getElementById('cb-'+e.id);
+    return cb && cb.checked;
+  });
+  var msg = checked.length > 0
+    ? 'チェックした'+checked.length+'件を消去でよろしいですか？'
+    : '全件消去でよろしいですか？';
+  if (!confirm(msg)) return;
+  var targets = checked.length > 0 ? checked : sentHist;
+  if (window.fbSentDeleteMany) {
+    window.fbSentDeleteMany(targets.map(function(e){return e.id;}));
+  }
+}
+
+// フォーム消去ボタン
+function clearForm() {
   st={plate:'',item:'',vehicle:'',surcharge:'',reasons:[],memo:''};
   document.getElementById('plateInput').value='';
   ['selItem','selVehicle'].forEach(function(id){
@@ -380,38 +522,11 @@ function resetForm() {
   var ss=document.getElementById('selSur');
   ss.innerHTML='<option value="">─ 割増 ─</option>';
   ss.className='main-select';ss.disabled=false;
-  updatePreview(); updateSendBtn();
-  document.getElementById('sendBtn').textContent='送信する';
-  document.querySelectorAll('.reason-btn').forEach(function(b){b.classList.remove('selected');}); var rc=document.getElementById('reasonCount'); if(rc)rc.textContent='';
+  document.querySelectorAll('.reason-btn').forEach(function(b){b.classList.remove('selected');});
+  var rc=document.getElementById('reasonCount'); if(rc)rc.textContent='';
   document.getElementById('memoInput').value='';
+  updatePreview(); updateSendBtn();
 }
-
-function addHist(e) {
-  localHist.unshift(e); if (localHist.length>5) localHist.pop(); renderHist();
-}
-function renderHist() {
-  var el=document.getElementById('historyList');
-  if (!localHist.length) {
-    el.innerHTML='<div style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:10px 4px;">送信すると履歴が表示されます</div>';
-    return;
-  }
-  el.innerHTML=localHist.map(function(e,i){
-    var d=new Date(e.timestamp);
-    var t=pad(d.getHours())+':'+pad(d.getMinutes());
-    return '<div class="history-item">'
-      +'<div class="history-plate">'+e.plate+'</div>'
-      +'<div class="history-badges">'
-      +'<span class="badge badge-item">'+e.item+'</span>'
-      +'<span class="badge badge-vehicle">'+e.vehicle+'</span>'
-      +'<span class="badge badge-'+e.surcharge+'">'+scLbl(e.surcharge)+'</span>'
-      +'</div>'
-      +'<div class="history-time">'+t+'</div>'
-      +'<button class="history-del" onclick="delHist('+i+')">✕</button>'
-      +'</div>';
-  }).join('');
-}
-function delHist(i){localHist.splice(i,1);renderHist();}
-function clearHistory(){localHist=[];renderHist();}
 
 // 事務所
 var allEntries=[]; var cf='all';
@@ -507,6 +622,12 @@ var fbConfirm=function(){};
 var fbDelete=function(){};
 var fbConfirmAll=function(){return Promise.resolve();};
 var fbDeleteMany=function(){return Promise.resolve();};
+var fbSentPush=function(){};
+var fbSentDelete=function(){};
+var fbSentDeleteMany=function(){return Promise.resolve();};
+window.fbSentPush=fbSentPush;
+window.fbSentDelete=fbSentDelete;
+window.fbSentDeleteMany=fbSentDeleteMany;
 </script>
 
 <!-- ============================================================
@@ -534,6 +655,7 @@ if (FIREBASE_CONFIG.apiKey === 'YOUR_API_KEY') {
     var app   = initializeApp(FIREBASE_CONFIG);
     var db    = getDatabase(app);
     var dbRef = ref(db, 'warashi_entries');
+    var sentRef = ref(db, 'warashi_sent');
 
     // Firebase関数を本物に差し替え
     window.fbPush = function(entry){ return push(dbRef, entry); };
@@ -548,7 +670,22 @@ if (FIREBASE_CONFIG.apiKey === 'YOUR_API_KEY') {
       return update(ref(db),u);
     };
 
-    // リアルタイム受信
+    // warashi_sent 関数
+    window.fbSentPush = function(entry){ push(sentRef, entry); };
+    window.fbSentDelete = function(id){ var u={}; u['warashi_sent/'+id]=null; update(ref(db),u); };
+    window.fbSentDeleteMany = function(ids){
+      var u={}; ids.forEach(function(id){u['warashi_sent/'+id]=null;});
+      return update(ref(db),u);
+    };
+
+    // warashi_sent リアルタイム受信
+    onValue(sentRef, function(snap) {
+      window.sentHist=[];
+      snap.forEach(function(c){window.sentHist.push(Object.assign({id:c.key},c.val()));});
+      window.renderSentHist();
+    });
+
+    // warashi_entries リアルタイム受信
     onValue(dbRef, function(snap) {
       window.allEntries=[];
       snap.forEach(function(c){window.allEntries.push(Object.assign({id:c.key},c.val()));});
