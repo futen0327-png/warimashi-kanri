@@ -515,6 +515,7 @@ function renderSentHist() {
         reasonBadges += '<span class="badge" style="color:#a78bda;border-color:#a78bda;background:#1e1a2e">' + rArr[j] + '</span>';
       }
     }
+    var customerBadge = e.customer ? '<span class="badge" style="color:#4caf7d;border-color:#4caf7d;background:#112218">' + e.customer + '</span>' : '';
     var memoBadge = e.memo ? '<span style="font-size:11px;color:var(--text2);font-style:italic">' + e.memo + '</span>' : '';
     var eid = e.id;
     out += '<div class="sent-item" id="sh-' + eid + '">';
@@ -528,7 +529,7 @@ function renderSentHist() {
     out += '<span class="badge badge-item">' + e.item + '</span>';
     out += '<span class="badge badge-vehicle">' + e.vehicle + '</span>';
     out += '<span class="badge badge-' + e.surcharge + '">' + scLbl(e.surcharge) + '</span>';
-    out += reasonBadges + memoBadge;
+    out += customerBadge + reasonBadges + memoBadge;
     out += '</div>';
     out += '</div>';
     out += '<div class="sent-item-actions">';
