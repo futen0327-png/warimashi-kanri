@@ -187,6 +187,24 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
 .cust-row-time{font-family:var(--mono);font-size:11px;color:var(--text3);min-width:38px;}
 .cust-row-plate{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent);min-width:42px;}
 .cust-empty{text-align:center;padding:60px 20px;color:var(--text2);font-family:var(--mono);font-size:13px;line-height:2;}
+
+/* 設定タブ */
+.view-settings{display:none;}
+.view-settings.active{display:block;}
+.settings-wrap{max-width:480px;margin:0 auto;padding:12px 12px 24px;}
+.settings-section-label{font-family:var(--mono);font-size:10px;color:var(--text3);letter-spacing:.1em;margin-bottom:10px;}
+.customer-list-mgr{display:flex;flex-direction:column;gap:6px;margin-bottom:16px;}
+.customer-list-row{display:flex;align-items:center;justify-content:space-between;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:10px 14px;}
+.customer-list-name{font-family:var(--sans);font-size:14px;font-weight:700;color:var(--text);}
+.customer-del-btn{padding:5px 12px;background:transparent;border:1.5px solid var(--border);border-radius:6px;color:var(--text3);font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.customer-del-btn:hover{border-color:var(--red);color:var(--red);}
+.customer-add-row{display:flex;gap:8px;margin-top:8px;}
+.customer-add-input{flex:1;background:var(--panel2);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--sans);font-size:14px;font-weight:700;padding:9px 8px;outline:none;transition:border-color .15s;}
+.customer-add-input:focus{border-color:var(--accent);}
+.customer-add-input::placeholder{color:var(--text3);font-weight:400;}
+.customer-add-btn{padding:10px 16px;background:var(--accent);color:#111;border:none;border-radius:8px;font-family:var(--sans);font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;transition:all .15s;}
+.customer-add-btn:active{transform:scale(.97);}
+.customer-empty{font-family:var(--mono);font-size:12px;color:var(--text3);padding:16px 4px;}
 </style>
 </head>
 <body>
@@ -197,9 +215,10 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
     <div class="hd-date" id="headerDate"></div>
   </div>
   <div class="mode-switch">
-    <button type="button" class="mode-btn active" onclick="setMode('operator',this)">オペレーター</button>
+    <button type="button" class="mode-btn active" onclick="setMode('operator',this)">オペ</button>
     <button type="button" class="mode-btn" onclick="setMode('office',this)">事務所</button>
-    <button type="button" class="mode-btn" onclick="setMode('customer',this)">顧客集計</button>
+    <button type="button" class="mode-btn" onclick="setMode('customer',this)">集計</button>
+    <button type="button" class="mode-btn" onclick="setMode('settings',this)">設定</button>
   </div>
 </header>
 
@@ -316,6 +335,20 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
     <div class="cust-date-label" id="custDateLabel"></div>
     <div class="cust-accordion" id="custAccordion">
       <div class="cust-empty">データを読み込み中…</div>
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS 設定 -->
+<div class="view-settings" id="viewSettings">
+  <div class="settings-wrap">
+    <div class="settings-section-label">CUSTOMER LIST — 顧客リスト管理</div>
+    <div class="customer-list-mgr" id="customerListMgr">
+      <div class="customer-empty">読み込み中…</div>
+    </div>
+    <div class="customer-add-row">
+      <input class="customer-add-input" id="customerAddInput" type="text" placeholder="新しい顧客名を入力…" autocomplete="off">
+      <button type="button" class="customer-add-btn" onclick="addCustomerFromSettings()">追加</button>
     </div>
   </div>
 </div>
@@ -750,6 +783,48 @@ function toggleCustItem(el) {
   el.classList.toggle('open');
 }
 
+// ===== 設定タブ：顧客リスト管理 =====
+var customersMgr = []; // {id, name} の配列
+
+function renderCustomerListMgr() {
+  var el = document.getElementById('customerListMgr');
+  if (!el) return;
+  if (!customersMgr.length) {
+    el.innerHTML = '<div class="customer-empty">顧客が登録されていません</div>';
+    return;
+  }
+  var html = '';
+  customersMgr.forEach(function(c) {
+    html += '<div class="customer-list-row">';
+    html += '<span class="customer-list-name">' + c.name + '</span>';
+    html += '<button type="button" class="customer-del-btn" onclick="deleteCustomer(\'' + c.id + '\')">削除</button>';
+    html += '</div>';
+  });
+  el.innerHTML = html;
+}
+
+function deleteCustomer(id) {
+  var c = customersMgr.find(function(x){return x.id===id;});
+  if (!c) return;
+  if (!confirm('「' + c.name + '」を削除しますか？')) return;
+  if (window.fbCustomerDelete) {
+    window.fbCustomerDelete(id);
+  }
+}
+
+function addCustomerFromSettings() {
+  var inp = document.getElementById('customerAddInput');
+  var name = inp ? inp.value.trim() : '';
+  if (!name) return;
+  if (customersMgr.some(function(c){return c.name===name;})) {
+    showToast('すでに登録済みです', true); return;
+  }
+  if (window.fbCustomerAdd) {
+    window.fbCustomerAdd(name);
+  }
+  if (inp) inp.value = '';
+}
+
 function confirmEntry(id){if(fbReady)fbConfirm(id);}
 function deleteEntry(id){if(fbReady)fbDelete(id);}
 function confirmAll(){
@@ -777,7 +852,9 @@ function setMode(mode,btn){
   document.getElementById('viewOperator').classList.toggle('active',mode==='operator');
   document.getElementById('viewOffice').classList.toggle('active',mode==='office');
   document.getElementById('viewCustomer').classList.toggle('active',mode==='customer');
+  document.getElementById('viewSettings').classList.toggle('active',mode==='settings');
   if (mode==='customer') renderCustomer();
+  if (mode==='settings') renderCustomerListMgr();
 }
 
 function scLbl(k){
@@ -806,10 +883,12 @@ var fbSentPush=function(){};
 var fbSentDelete=function(){};
 var fbSentDeleteMany=function(){return Promise.resolve();};
 var fbCustomerAdd=function(){};
+var fbCustomerDelete=function(){};
 window.fbSentPush=fbSentPush;
 window.fbSentDelete=fbSentDelete;
 window.fbSentDeleteMany=fbSentDeleteMany;
 window.fbCustomerAdd=fbCustomerAdd;
+window.fbCustomerDelete=fbCustomerDelete;
 </script>
 
 <!-- ============================================================
@@ -871,14 +950,26 @@ if (FIREBASE_CONFIG.apiKey === 'YOUR_API_KEY') {
     // warashi_customers リアルタイム受信
     onValue(custRef, function(snap) {
       var names = [];
-      snap.forEach(function(c){ names.push(c.val()); });
+      var mgr = [];
+      snap.forEach(function(c){ names.push(c.val()); mgr.push({id:c.key,name:c.val()}); });
       var dl = document.getElementById('customerList');
       if (dl) {
         dl.innerHTML = names.map(function(n){
           return '<option value="' + n + '">';
         }).join('');
       }
+      window.customersMgr = mgr;
+      // 設定タブが表示中なら再描画
+      var settingsView = document.getElementById('viewSettings');
+      if (settingsView && settingsView.classList.contains('active')) {
+        window.renderCustomerListMgr();
+      }
     });
+
+    // 顧客名削除関数
+    window.fbCustomerDelete = function(id) {
+      var u = {}; u['warashi_customers/' + id] = null; update(ref(db), u);
+    };
 
     // 顧客名追加関数（重複チェックつき）
     window.fbCustomerAdd = function(name) {
