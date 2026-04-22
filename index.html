@@ -156,6 +156,36 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
 .form-clear-btn:hover{border-color:var(--red);color:var(--red);}
 .send-row{display:flex;gap:8px;margin-bottom:16px;}
 .send-row .send-btn{margin-bottom:0;}
+
+/* 顧客名入力 */
+.customer-input-wrap{position:relative;}
+.customer-input{width:100%;background:var(--panel2);border:1.5px solid var(--border);border-radius:8px;color:var(--text);font-family:var(--sans);font-size:14px;font-weight:700;padding:9px 8px;outline:none;transition:border-color .15s;}
+.customer-input:focus{border-color:var(--accent);}
+.customer-input::placeholder{color:var(--text3);font-weight:400;}
+
+/* 顧客集計タブ */
+.view-customer{display:none;}
+.view-customer.active{display:block;}
+.cust-wrap{max-width:600px;margin:0 auto;padding:12px 12px 24px;}
+.cust-date-label{font-family:var(--mono);font-size:11px;color:var(--text2);margin-bottom:12px;}
+.cust-accordion{display:flex;flex-direction:column;gap:8px;}
+.cust-item{background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+.cust-header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;}
+.cust-header:active{background:var(--panel2);}
+.cust-name{font-family:var(--sans);font-size:15px;font-weight:700;color:var(--text);}
+.cust-meta{display:flex;align-items:center;gap:10px;}
+.cust-count{font-family:var(--mono);font-size:13px;color:var(--accent);font-weight:700;}
+.cust-last{font-family:var(--mono);font-size:11px;color:var(--text3);}
+.cust-arrow{font-size:12px;color:var(--text3);transition:transform .2s;}
+.cust-item.open .cust-arrow{transform:rotate(180deg);}
+.cust-detail{display:none;border-top:1px solid var(--border);padding:8px 12px;display:flex;flex-direction:column;gap:6px;}
+.cust-item:not(.open) .cust-detail{display:none;}
+.cust-item.open .cust-detail{display:flex;}
+.cust-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:6px 4px;border-bottom:1px solid var(--border);}
+.cust-row:last-child{border-bottom:none;}
+.cust-row-time{font-family:var(--mono);font-size:11px;color:var(--text3);min-width:38px;}
+.cust-row-plate{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent);min-width:42px;}
+.cust-empty{text-align:center;padding:60px 20px;color:var(--text2);font-family:var(--mono);font-size:13px;line-height:2;}
 </style>
 </head>
 <body>
@@ -168,6 +198,7 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
   <div class="mode-switch">
     <button type="button" class="mode-btn active" onclick="setMode('operator',this)">オペレーター</button>
     <button type="button" class="mode-btn" onclick="setMode('office',this)">事務所</button>
+    <button type="button" class="mode-btn" onclick="setMode('customer',this)">顧客集計</button>
   </div>
 </header>
 
@@ -222,7 +253,16 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
           <button type="button" class="reason-btn" onclick="toggleReason(this,'その他')">その他</button>
         </div>
       </div>
-      <!-- 備考 -->
+      <!-- 顧客名・備考 -->
+      <div class="sel-col" style="border-top:1px solid var(--border);padding:10px;">
+        <div class="sel-label">CUSTOMER 顧客名（任意）</div>
+        <div class="customer-input-wrap">
+          <input class="customer-input" id="customerInput" type="text"
+            list="customerList" placeholder="会社名を入力…"
+            oninput="onCustomer(this)" autocomplete="off">
+          <datalist id="customerList"></datalist>
+        </div>
+      </div>
       <div class="sel-col" style="border-top:1px solid var(--border);padding:10px;">
         <div class="sel-label">NOTE 備考（任意）</div>
         <input class="memo-input" id="memoInput" type="text" placeholder="自由入力…" oninput="onMemo(this)">
@@ -269,6 +309,16 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
   </div>
 </div>
 
+<!-- CUSTOMER 顧客集計 -->
+<div class="view-customer" id="viewCustomer">
+  <div class="cust-wrap">
+    <div class="cust-date-label" id="custDateLabel"></div>
+    <div class="cust-accordion" id="custAccordion">
+      <div class="cust-empty">データを読み込み中…</div>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <!-- ============================================================
@@ -295,7 +345,7 @@ function getSurOpts(item, vehicle) {
   ];
 }
 
-var st = {plate:'',item:'',vehicle:'',surcharge:'',reasons:[],memo:''};
+var st = {plate:'',item:'',vehicle:'',surcharge:'',reasons:[],memo:'',customer:''};
 var localHist = [];
 var fbReady = false; // Firebase接続フラグ
 
@@ -346,6 +396,10 @@ function toggleReason(btn, val) {
 function onMemo(el) {
   st.memo=el.value; updatePreview();
 }
+function onCustomer(el) {
+  st.customer = el.value;
+  updatePreview();
+}
 
 function rebuildSur() {
   var sel = document.getElementById('selSur');
@@ -387,6 +441,7 @@ function updatePreview() {
   if (vehicle)   h+='<span class="ptag ptag-vehicle">'+vehicle+'</span>';
   if (surcharge) h+='<span class="ptag ptag-'+surcharge+'">'+scLbl(surcharge)+'</span>';
   st.reasons.forEach(function(r){h+='<span class="ptag" style="color:#a78bda;border-color:#a78bda;background:#1e1a2e">'+r+'</span>';});
+  if (st.customer) h+='<span class="ptag" style="color:#4caf7d;border-color:#4caf7d;background:#112218">'+st.customer+'</span>';
   if (st.memo)   h+='<span class="ptag" style="color:var(--text2);border-color:var(--border);background:var(--panel2)">'+st.memo+'</span>';
   bar.innerHTML=h;
 }
@@ -403,12 +458,16 @@ function submitEntry() {
   if (plate.length<1||!item||!vehicle||!surcharge) return;
   if (!fbReady) { showToast('Firebase未接続のため送信できません',true); return; }
   var entry={plate:plate,item:item,vehicle:vehicle,surcharge:surcharge,
-    reasons:st.reasons.join(','),memo:st.memo,
+    reasons:st.reasons.join(','),memo:st.memo,customer:st.customer||'',
     timestamp:new Date().toISOString(),confirmed:false};
   var btn=document.getElementById('sendBtn');
   btn.disabled=true; btn.textContent='送信中…';
   fbPush(entry).then(function(){
     showToast(plate+' 送信しました');
+    // 顧客名を自動登録
+    if (st.customer && window.fbCustomerAdd) {
+      window.fbCustomerAdd(st.customer);
+    }
     // warashi_sentに保存（重複チェック後）
     if (!isSentDuplicate(entry) && window.fbSentPush) {
       window.fbSentPush(entry);
@@ -507,6 +566,10 @@ function copyToForm(id) {
   });
   var rc = document.getElementById('reasonCount');
   if (rc) rc.textContent = st.reasons.length > 0 ? ' ('+st.reasons.length+'/4)' : '';
+  // 顧客名
+  st.customer = e.customer || '';
+  var ci = document.getElementById('customerInput');
+  if (ci) ci.value = st.customer;
   // 備考
   st.memo = e.memo || '';
   document.getElementById('memoInput').value = st.memo;
@@ -538,7 +601,7 @@ function bulkDeleteSent() {
 
 // フォーム消去ボタン
 function clearForm() {
-  st={plate:'',item:'',vehicle:'',surcharge:'',reasons:[],memo:''};
+  st={plate:'',item:'',vehicle:'',surcharge:'',reasons:[],memo:'',customer:''};
   document.getElementById('plateInput').value='';
   ['selItem','selVehicle'].forEach(function(id){
     var e=document.getElementById(id);e.value='';e.className='main-select';e.disabled=false;
@@ -549,6 +612,7 @@ function clearForm() {
   document.querySelectorAll('.reason-btn').forEach(function(b){b.classList.remove('selected');});
   var rc=document.getElementById('reasonCount'); if(rc)rc.textContent='';
   document.getElementById('memoInput').value='';
+  var ci=document.getElementById('customerInput'); if(ci) ci.value='';
   updatePreview(); updateSendBtn();
 }
 
@@ -579,6 +643,7 @@ function renderCard(e) {
     +'<span class="badge badge-vehicle">'+e.vehicle+'</span>'
     +'<span class="badge badge-'+e.surcharge+'">'+scLbl(e.surcharge)+'</span>'
     +(e.reasons?e.reasons.split(',').map(function(r){return '<span class="badge" style="color:#a78bda;border-color:#a78bda;background:#1e1a2e">'+r+'</span>';}).join(''):'')
+    +(e.customer?'<span class="badge" style="color:#4caf7d;border-color:#4caf7d;background:#112218">'+e.customer+'</span>':'')
     +(e.memo?'<span style="font-size:11px;color:var(--text2);font-style:italic">'+e.memo+'</span>':'')
     +'</div>'
     +'<div class="entry-actions">'
@@ -594,6 +659,92 @@ function renderStats() {
     '<div class="stat-pill">本日 <span>'+today+'件</span></div>'
     +'<div class="stat-pill">未確認 <span style="color:var(--accent)">'+unconf+'件</span></div>'
     +'<div class="stat-pill">累計 <span>'+allEntries.length+'件</span></div>';
+}
+
+// ===== 顧客集計タブ =====
+function renderCustomer() {
+  var now = new Date();
+  var todayStr = now.toDateString();
+  var lbl = document.getElementById('custDateLabel');
+  if (lbl) {
+    var day = ['日','月','火','水','木','金','土'][now.getDay()];
+    lbl.textContent = (now.getMonth()+1) + '/' + now.getDate() + '(' + day + ') の顧客別集計';
+  }
+
+  // 当日分のみ抽出
+  var todayEntries = allEntries.filter(function(e){
+    return new Date(e.timestamp).toDateString() === todayStr;
+  });
+
+  var accordion = document.getElementById('custAccordion');
+  if (!accordion) return;
+
+  if (!todayEntries.length) {
+    accordion.innerHTML = '<div class="cust-empty">本日の荷受け記録がありません</div>';
+    return;
+  }
+
+  // 顧客ごとにグループ化
+  var groups = {};
+  todayEntries.forEach(function(e) {
+    var key = e.customer || '（顧客名なし）';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(e);
+  });
+
+  // 件数降順でソート
+  var keys = Object.keys(groups).sort(function(a,b){
+    return groups[b].length - groups[a].length;
+  });
+
+  var html = '';
+  keys.forEach(function(name) {
+    var list = groups[name].slice().sort(function(a,b){
+      return new Date(a.timestamp) - new Date(b.timestamp);
+    });
+    var lastTime = new Date(list[list.length-1].timestamp);
+    var lastT = pad(lastTime.getHours()) + ':' + pad(lastTime.getMinutes());
+    var count = list.length;
+
+    // アコーディオンヘッダー
+    html += '<div class="cust-item" onclick="toggleCustItem(this)">';
+    html += '<div class="cust-header">';
+    html += '<span class="cust-name">' + name + '</span>';
+    html += '<div class="cust-meta">';
+    html += '<span class="cust-count">' + count + '件</span>';
+    html += '<span class="cust-last">最終 ' + lastT + '</span>';
+    html += '<span class="cust-arrow">▼</span>';
+    html += '</div></div>';
+
+    // アコーディオン明細
+    html += '<div class="cust-detail">';
+    list.forEach(function(e) {
+      var d = new Date(e.timestamp);
+      var t = pad(d.getHours()) + ':' + pad(d.getMinutes());
+      var reasonBadges = '';
+      if (e.reasons) {
+        e.reasons.split(',').filter(function(r){return r;}).forEach(function(r){
+          reasonBadges += '<span class="badge" style="color:#a78bda;border-color:#a78bda;background:#1e1a2e">'+r+'</span>';
+        });
+      }
+      html += '<div class="cust-row">';
+      html += '<span class="cust-row-time">' + t + '</span>';
+      html += '<span class="cust-row-plate">' + (e.plate||'----') + '</span>';
+      html += '<span class="badge badge-item">' + e.item + '</span>';
+      html += '<span class="badge badge-vehicle">' + e.vehicle + '</span>';
+      html += '<span class="badge badge-' + e.surcharge + '">' + scLbl(e.surcharge) + '</span>';
+      html += reasonBadges;
+      if (e.memo) html += '<span style="font-size:11px;color:var(--text2);font-style:italic">' + e.memo + '</span>';
+      html += '</div>';
+    });
+    html += '</div></div>';
+  });
+
+  accordion.innerHTML = html;
+}
+
+function toggleCustItem(el) {
+  el.classList.toggle('open');
 }
 
 function confirmEntry(id){if(fbReady)fbConfirm(id);}
@@ -622,6 +773,8 @@ function setMode(mode,btn){
   btn.classList.add('active');
   document.getElementById('viewOperator').classList.toggle('active',mode==='operator');
   document.getElementById('viewOffice').classList.toggle('active',mode==='office');
+  document.getElementById('viewCustomer').classList.toggle('active',mode==='customer');
+  if (mode==='customer') renderCustomer();
 }
 
 function scLbl(k){
@@ -649,9 +802,11 @@ var fbDeleteMany=function(){return Promise.resolve();};
 var fbSentPush=function(){};
 var fbSentDelete=function(){};
 var fbSentDeleteMany=function(){return Promise.resolve();};
+var fbCustomerAdd=function(){};
 window.fbSentPush=fbSentPush;
 window.fbSentDelete=fbSentDelete;
 window.fbSentDeleteMany=fbSentDeleteMany;
+window.fbCustomerAdd=fbCustomerAdd;
 </script>
 
 <!-- ============================================================
@@ -674,12 +829,13 @@ if (FIREBASE_CONFIG.apiKey === 'YOUR_API_KEY') {
 } else {
   try {
     var { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
-    var { getDatabase, ref, push, onValue, update } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js");
+    var { getDatabase, ref, push, onValue, update, get } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js");
 
     var app   = initializeApp(FIREBASE_CONFIG);
     var db    = getDatabase(app);
     var dbRef = ref(db, 'warashi_entries');
     var sentRef = ref(db, 'warashi_sent');
+    var custRef = ref(db, 'warashi_customers');
 
     // Firebase関数を本物に差し替え
     window.fbPush = function(entry){ return push(dbRef, entry); };
@@ -709,6 +865,31 @@ if (FIREBASE_CONFIG.apiKey === 'YOUR_API_KEY') {
       window.renderSentHist();
     });
 
+    // warashi_customers リアルタイム受信
+    onValue(custRef, function(snap) {
+      var names = [];
+      snap.forEach(function(c){ names.push(c.val()); });
+      var dl = document.getElementById('customerList');
+      if (dl) {
+        dl.innerHTML = names.map(function(n){
+          return '<option value="' + n + '">';
+        }).join('');
+      }
+    });
+
+    // 顧客名追加関数（重複チェックつき）
+    window.fbCustomerAdd = function(name) {
+      if (!name || !name.trim()) return;
+      var trimmed = name.trim();
+      // 既存チェック
+      var dl = document.getElementById('customerList');
+      if (dl) {
+        var exists = Array.from(dl.options).some(function(o){ return o.value === trimmed; });
+        if (exists) return;
+      }
+      push(custRef, trimmed);
+    };
+
     // warashi_entries リアルタイム受信
     onValue(dbRef, function(snap) {
       window.allEntries=[];
@@ -724,6 +905,20 @@ if (FIREBASE_CONFIG.apiKey === 'YOUR_API_KEY') {
     banner.className = 'fb-banner ok';
     document.getElementById('fbMsg').textContent = 'Firebase接続済み — リアルタイム同期中';
     window.updateSendBtn();
+
+    // 初期顧客リストの投入（未登録の場合のみ）
+    var INITIAL_CUSTOMERS = [
+      '中川組','西川組','山地組','川村建築','丸本建材','誠建','アズマヤ'
+    ];
+    get(custRef).then(function(snap) {
+      if (!snap.exists()) {
+        var batch = {};
+        INITIAL_CUSTOMERS.forEach(function(name, i) {
+          batch['init_' + i] = name;
+        });
+        update(custRef, batch);
+      }
+    });
 
   } catch(e) {
     console.error('Firebase接続エラー:', e);
