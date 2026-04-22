@@ -205,6 +205,13 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
 .customer-add-btn{padding:10px 16px;background:var(--accent);color:#111;border:none;border-radius:8px;font-family:var(--sans);font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;transition:all .15s;}
 .customer-add-btn:active{transform:scale(.97);}
 .customer-empty{font-family:var(--mono);font-size:12px;color:var(--text3);padding:16px 4px;}
+
+/* 集計タブ 消去ボタン */
+.cust-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.cust-clear-btn{padding:5px 12px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--text3);font-family:var(--sans);font-size:11px;font-weight:700;cursor:pointer;transition:all .15s;}
+.cust-clear-btn:hover{border-color:var(--red);color:var(--red);}
+.cust-row-del{background:transparent;border:none;color:var(--text3);font-size:13px;cursor:pointer;padding:2px 6px;border-radius:4px;transition:all .15s;flex-shrink:0;}
+.cust-row-del:hover{color:var(--red);}
 </style>
 </head>
 <body>
@@ -332,7 +339,10 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
 <!-- CUSTOMER 顧客集計 -->
 <div class="view-customer" id="viewCustomer">
   <div class="cust-wrap">
-    <div class="cust-date-label" id="custDateLabel"></div>
+    <div class="cust-top">
+      <div class="cust-date-label" id="custDateLabel"></div>
+      <button type="button" class="cust-clear-btn" onclick="clearAllCustomer()">本日分を全消去</button>
+    </div>
     <div class="cust-accordion" id="custAccordion">
       <div class="cust-empty">データを読み込み中…</div>
     </div>
@@ -655,7 +665,7 @@ function clearForm() {
 // 事務所
 var allEntries=[]; var cf='all';
 function renderOffice() {
-  var list=allEntries.slice().reverse();
+  var list=allEntries.filter(function(e){return !e.deletedFromOffice;}).slice().reverse();
   if (cf==='new') list=list.filter(function(e){return !e.confirmed;});
   else if (cf!=='all') list=list.filter(function(e){return e.item===cf;});
   var el=document.getElementById('entriesList');
@@ -707,9 +717,9 @@ function renderCustomer() {
     lbl.textContent = (now.getMonth()+1) + '/' + now.getDate() + '(' + day + ') の顧客別集計';
   }
 
-  // 当日分のみ抽出
+  // 当日分のみ抽出（集計タブで削除済みを除く）
   var todayEntries = allEntries.filter(function(e){
-    return new Date(e.timestamp).toDateString() === todayStr;
+    return new Date(e.timestamp).toDateString() === todayStr && !e.deletedFromCustomer;
   });
 
   var accordion = document.getElementById('custAccordion');
@@ -771,6 +781,7 @@ function renderCustomer() {
       html += '<span class="badge badge-' + e.surcharge + '">' + scLbl(e.surcharge) + '</span>';
       html += reasonBadges;
       if (e.memo) html += '<span style="font-size:11px;color:var(--text2);font-style:italic">' + e.memo + '</span>';
+      html += '<button type="button" class="cust-row-del" onclick="event.stopPropagation();deleteFromCustomer(\'' + e.id + '\')">🗑</button>';
       html += '</div>';
     });
     html += '</div></div>';
@@ -781,6 +792,32 @@ function renderCustomer() {
 
 function toggleCustItem(el) {
   el.classList.toggle('open');
+}
+
+function deleteFromCustomer(id) {
+  if (!fbReady) return;
+  var e = allEntries.find(function(e){return e.id===id;});
+  if (e && e.deletedFromOffice) {
+    fbDelete(id); // 両フラグ揃ったので完全削除
+  } else {
+    fbSetCustomerDeleted(id); // customerフラグのみ
+  }
+}
+
+function clearAllCustomer() {
+  if (!fbReady) return;
+  var now = new Date();
+  var todayStr = now.toDateString();
+  var targets = allEntries.filter(function(e){
+    return new Date(e.timestamp).toDateString() === todayStr && !e.deletedFromCustomer;
+  });
+  if (!targets.length) { showToast('本日の記録がありません'); return; }
+  if (!confirm('本日分 ' + targets.length + '件 を集計タブから消去しますか？')) return;
+  var toDelete = targets.filter(function(e){return e.deletedFromOffice;}).map(function(e){return e.id;});
+  var toFlag   = targets.filter(function(e){return !e.deletedFromOffice;}).map(function(e){return e.id;});
+  var p1 = toDelete.length ? fbDeleteMany(toDelete) : Promise.resolve();
+  var p2 = toFlag.length   ? fbSetCustomerFlagMany(toFlag) : Promise.resolve();
+  Promise.all([p1,p2]).then(function(){showToast('消去しました');});
 }
 
 // ===== 設定タブ：顧客リスト管理 =====
@@ -826,7 +863,15 @@ function addCustomerFromSettings() {
 }
 
 function confirmEntry(id){if(fbReady)fbConfirm(id);}
-function deleteEntry(id){if(fbReady)fbDelete(id);}
+function deleteEntry(id){
+  if(!fbReady) return;
+  var e = allEntries.find(function(e){return e.id===id;});
+  if (e && e.deletedFromCustomer) {
+    fbDelete(id); // 完全削除
+  } else {
+    fbSetOfficeDeleted(id); // officeフラグのみ
+  }
+}
 function confirmAll(){
   if(!fbReady) return;
   var ids=allEntries.filter(function(e){return !e.confirmed;}).map(function(e){return e.id;});
@@ -835,10 +880,14 @@ function confirmAll(){
 }
 function clearConfirmed(){
   if(!fbReady) return;
-  var targets=allEntries.filter(function(e){return e.confirmed;});
+  var targets=allEntries.filter(function(e){return e.confirmed && !e.deletedFromOffice;});
   if(!targets.length){showToast('確認済みの記録がありません');return;}
-  if(!confirm('確認済み '+targets.length+'件 を削除しますか？')) return;
-  fbDeleteMany(targets.map(function(e){return e.id;})).then(function(){showToast('削除しました');});
+  if(!confirm('確認済み '+targets.length+'件 を事務所から消去しますか？')) return;
+  var toDelete = targets.filter(function(e){return e.deletedFromCustomer;}).map(function(e){return e.id;});
+  var toFlag   = targets.filter(function(e){return !e.deletedFromCustomer;}).map(function(e){return e.id;});
+  var p1 = toDelete.length ? fbDeleteMany(toDelete) : Promise.resolve();
+  var p2 = toFlag.length   ? fbSetOfficeFlagMany(toFlag) : Promise.resolve();
+  Promise.all([p1,p2]).then(function(){showToast('消去しました');});
 }
 function setFilter(f,btn){
   cf=f;
@@ -884,11 +933,19 @@ var fbSentDelete=function(){};
 var fbSentDeleteMany=function(){return Promise.resolve();};
 var fbCustomerAdd=function(){};
 var fbCustomerDelete=function(){};
+var fbSetOfficeDeleted=function(){};
+var fbSetCustomerDeleted=function(){};
+var fbSetOfficeFlagMany=function(){return Promise.resolve();};
+var fbSetCustomerFlagMany=function(){return Promise.resolve();};
 window.fbSentPush=fbSentPush;
 window.fbSentDelete=fbSentDelete;
 window.fbSentDeleteMany=fbSentDeleteMany;
 window.fbCustomerAdd=fbCustomerAdd;
 window.fbCustomerDelete=fbCustomerDelete;
+window.fbSetOfficeDeleted=fbSetOfficeDeleted;
+window.fbSetCustomerDeleted=fbSetCustomerDeleted;
+window.fbSetOfficeFlagMany=fbSetOfficeFlagMany;
+window.fbSetCustomerFlagMany=fbSetCustomerFlagMany;
 </script>
 
 <!-- ============================================================
@@ -921,6 +978,24 @@ if (FIREBASE_CONFIG.apiKey === 'YOUR_API_KEY') {
 
     // Firebase関数を本物に差し替え
     window.fbPush = function(entry){ return push(dbRef, entry); };
+    // officeフラグ（個別・一括）
+    window.fbSetOfficeDeleted = function(id){
+      update(ref(db,'warashi_entries/'+id),{deletedFromOffice:true});
+    };
+    window.fbSetOfficeFlagMany = function(ids){
+      var u={};
+      ids.forEach(function(id){u['warashi_entries/'+id+'/deletedFromOffice']=true;});
+      return update(ref(db),u);
+    };
+    // customerフラグ（個別・一括）
+    window.fbSetCustomerDeleted = function(id){
+      update(ref(db,'warashi_entries/'+id),{deletedFromCustomer:true});
+    };
+    window.fbSetCustomerFlagMany = function(ids){
+      var u={};
+      ids.forEach(function(id){u['warashi_entries/'+id+'/deletedFromCustomer']=true;});
+      return update(ref(db),u);
+    };
     window.fbConfirm = function(id){ update(ref(db,'warashi_entries/'+id),{confirmed:true}); };
     window.fbDelete = function(id){ var u={}; u['warashi_entries/'+id]=null; update(ref(db),u); };
     window.fbConfirmAll = function(ids){
