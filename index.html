@@ -164,9 +164,6 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
 .customer-input:focus{border-color:var(--accent);}
 .customer-input::placeholder{color:var(--text3);font-weight:400;}
 
-/* 顧客集計タブ */
-.view-customer{display:none;}
-.view-customer.active{display:block;}
 .cust-wrap{max-width:600px;margin:0 auto;padding:12px 12px 24px;}
 .cust-date-label{font-family:var(--mono);font-size:11px;color:var(--text2);margin-bottom:12px;}
 .cust-accordion{display:flex;flex-direction:column;gap:8px;}
@@ -224,7 +221,6 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
   <div class="mode-switch">
     <button type="button" class="mode-btn active" onclick="setMode('operator',this)">オペ</button>
     <button type="button" class="mode-btn" onclick="setMode('office',this)">事務所</button>
-    <button type="button" class="mode-btn" onclick="setMode('customer',this)">集計</button>
     <button type="button" class="mode-btn" onclick="setMode('settings',this)">設定</button>
   </div>
 </header>
@@ -309,6 +305,16 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
     <div id="sentHistList">
       <div style="font-family:var(--mono);font-size:11px;color:var(--text3);padding:10px 4px;">送信すると履歴が表示されます</div>
     </div>
+    <!-- 顧客別集計（オペタブ内） -->
+    <div class="cust-wrap" style="margin-top:20px;">
+      <div class="cust-top">
+        <div class="cust-date-label" id="custDateLabel"></div>
+        <button type="button" class="cust-clear-btn" onclick="clearAllCustomer()">本日分を全消去</button>
+      </div>
+      <div class="cust-accordion" id="custAccordion">
+        <div class="cust-empty">データを読み込み中…</div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -333,19 +339,6 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
       <button type="button" class="filter-btn" onclick="setFilter('瓦',this)">瓦</button>
     </div>
     <div class="entries-list" id="entriesList"></div>
-  </div>
-</div>
-
-<!-- CUSTOMER 顧客集計 -->
-<div class="view-customer" id="viewCustomer">
-  <div class="cust-wrap">
-    <div class="cust-top">
-      <div class="cust-date-label" id="custDateLabel"></div>
-      <button type="button" class="cust-clear-btn" onclick="clearAllCustomer()">本日分を全消去</button>
-    </div>
-    <div class="cust-accordion" id="custAccordion">
-      <div class="cust-empty">データを読み込み中…</div>
-    </div>
   </div>
 </div>
 
@@ -900,9 +893,7 @@ function setMode(mode,btn){
   btn.classList.add('active');
   document.getElementById('viewOperator').classList.toggle('active',mode==='operator');
   document.getElementById('viewOffice').classList.toggle('active',mode==='office');
-  document.getElementById('viewCustomer').classList.toggle('active',mode==='customer');
   document.getElementById('viewSettings').classList.toggle('active',mode==='settings');
-  if (mode==='customer') renderCustomer();
   if (mode==='settings') renderCustomerListMgr();
 }
 
@@ -1064,6 +1055,7 @@ if (FIREBASE_CONFIG.apiKey === 'YOUR_API_KEY') {
       window.allEntries=[];
       snap.forEach(function(c){window.allEntries.push(Object.assign({id:c.key},c.val()));});
       window.renderOffice();
+      window.renderCustomer(); // オペタブ内集計を常時更新
       var u=window.allEntries.filter(function(e){return !e.confirmed;}).length;
       document.title=u>0?'('+u+') 割増伝達':'割増伝達システム';
     });
