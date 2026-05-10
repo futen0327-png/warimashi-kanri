@@ -345,14 +345,19 @@ var GAS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwtvRVkvtuuBv-jGq
 
 function sendToGAS(entry) {
   if (!GAS_WEBHOOK_URL || GAS_WEBHOOK_URL === 'YOUR_GAS_WEBHOOK_URL') return;
-  fetch(GAS_WEBHOOK_URL, {
-    method: 'POST',
-    mode: 'no-cors',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(entry)
-  }).catch(function(err){
-    console.warn('GAS送信エラー:', err);
-  });
+  var params = [
+    'timestamp=' + encodeURIComponent(entry.timestamp || ''),
+    'plate='     + encodeURIComponent(entry.plate     || ''),
+    'item='      + encodeURIComponent(entry.item      || ''),
+    'vehicle='   + encodeURIComponent(entry.vehicle   || ''),
+    'surcharge=' + encodeURIComponent(entry.surcharge || ''),
+    'reasons='   + encodeURIComponent(entry.reasons   || ''),
+    'customer='  + encodeURIComponent(entry.customer  || ''),
+    'memo='      + encodeURIComponent(entry.memo      || '')
+  ].join('&');
+  var url = GAS_WEBHOOK_URL + '?' + params;
+  fetch(url, { method: 'GET', mode: 'no-cors' })
+    .catch(function(err){ console.warn('GAS送信エラー:', err); });
 }
 
 // 割増ロジック（Firebase不要、ここだけで動く）
