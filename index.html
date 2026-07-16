@@ -167,6 +167,14 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
 .cust-row-plate{font-family:var(--mono);font-size:15px;font-weight:700;color:var(--accent);min-width:42px;}
 .cust-empty{text-align:center;padding:60px 20px;color:var(--text2);font-family:var(--mono);font-size:13px;line-height:2;}
 
+/* RC販売・業者実績タブ（Ver.2-01: 土台のみ） */
+.view-rcsales,.view-vendordashboard{display:none;}
+.view-rcsales.active,.view-vendordashboard.active{display:block;}
+.construction-wrap{max-width:480px;margin:0 auto;padding:12px 12px 24px;}
+.construction-card{background:var(--panel);border:1.5px solid var(--border);border-radius:14px;padding:60px 20px;text-align:center;}
+.construction-title{font-family:var(--mono);font-size:13px;color:var(--accent);letter-spacing:.08em;margin-bottom:12px;}
+.construction-text{font-family:var(--sans);font-size:13px;color:var(--text2);line-height:1.8;}
+
 /* 設定タブ */
 .view-settings{display:none;}
 .view-settings.active{display:block;}
@@ -205,6 +213,8 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
   <div class="mode-switch">
     <button type="button" class="mode-btn active" onclick="setMode('operator',this)">オペ</button>
     <button type="button" class="mode-btn" onclick="setMode('office',this)">事務所</button>
+    <button type="button" class="mode-btn" onclick="setMode('rcsales',this)">RC販売</button>
+    <button type="button" class="mode-btn" onclick="setMode('dashboard',this)">業者実績</button>
     <button type="button" class="mode-btn" onclick="setMode('settings',this)">設定</button>
   </div>
 </header>
@@ -319,6 +329,85 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
   </div>
 </div>
 
+<!-- RC販売（Ver.2-02: 入力画面。保存処理は次工程） -->
+<div class="view-rcsales" id="viewRcSales">
+  <div class="op-wrap">
+    <div class="form-card">
+      <div class="sel-col" style="padding:10px;">
+        <div class="sel-label">CUSTOMER 顧客名</div>
+        <div class="customer-input-wrap">
+          <input class="customer-input" id="rcCustomerInput" type="text"
+            list="customerList" placeholder="会社名を入力…" autocomplete="off">
+        </div>
+      </div>
+      <div class="sel-col" style="border-top:1px solid var(--border);padding:10px;">
+        <div class="sel-label">VEHICLE 車種</div>
+        <select class="main-select" id="rcVehicleSelect">
+          <option value="">─ 車種 ─</option>
+          <option>軽</option><option>2t</option><option>4t</option><option>8t</option><option>10t</option>
+        </select>
+      </div>
+      <div class="sel-col" style="border-top:1px solid var(--border);padding:10px;">
+        <div class="sel-label">QTY 数量</div>
+        <input class="customer-input" id="rcQtyInput" type="number" inputmode="numeric" min="1" step="1" value="1" oninput="onRcQtyInput(this)">
+      </div>
+    </div>
+    <button type="button" class="send-btn" id="rcSubmitBtn" onclick="submitRcSales()">登録</button>
+  </div>
+</div>
+
+<!-- 業者実績（Ver.2-04: 検索画面。検索処理は次工程） -->
+<div class="view-vendordashboard" id="viewVendorDashboard">
+  <div class="op-wrap">
+    <div class="form-card">
+      <div class="sel-col" style="padding:10px;">
+        <div class="sel-label">CUSTOMER 顧客名</div>
+        <div class="customer-input-wrap">
+          <input class="customer-input" id="vdCustomerInput" type="text"
+            list="customerList" placeholder="会社名を入力…" autocomplete="off">
+        </div>
+      </div>
+      <div class="sel-col" style="border-top:1px solid var(--border);padding:10px;">
+        <div class="sel-label">PERIOD 集計期間</div>
+        <select class="main-select" id="vdPeriodSelect" onchange="onVdPeriodChange(this)">
+          <option value="30">30日</option>
+          <option value="90" selected>90日</option>
+          <option value="180">180日</option>
+          <option value="thisyear">今年</option>
+          <option value="custom">期間指定</option>
+        </select>
+      </div>
+      <div class="sel-col" id="vdCustomRange" style="border-top:1px solid var(--border);padding:10px;display:none;">
+        <div class="sel-label">START DATE 開始日</div>
+        <input class="customer-input" id="vdStartDate" type="date" style="margin-bottom:10px;">
+        <div class="sel-label">END DATE 終了日</div>
+        <input class="customer-input" id="vdEndDate" type="date">
+      </div>
+    </div>
+    <div class="send-row">
+      <button type="button" class="form-clear-btn" onclick="resetVendorDashboard()">リセット</button>
+      <button type="button" class="send-btn" id="vdSearchBtn" onclick="searchVendorDashboard()">検索</button>
+      <button type="button" class="send-btn" id="vdExcelBtn" onclick="exportVdExcel()" disabled>Excel出力</button>
+    </div>
+    <div class="cust-wrap" style="margin-top:20px;padding:0;">
+      <div class="cust-top">
+        <div class="cust-date-label">RC販売実績</div>
+      </div>
+      <div id="vdResultBody">
+        <div class="cust-empty">検索してください。</div>
+      </div>
+    </div>
+    <div class="cust-wrap" style="margin-top:20px;padding:0;">
+      <div class="cust-top">
+        <div class="cust-date-label">ガラ搬入実績</div>
+      </div>
+      <div id="graResultBody">
+        <div class="cust-empty">検索してください。</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- SETTINGS 設定 -->
 <div class="view-settings" id="viewSettings">
   <div class="settings-wrap">
@@ -335,11 +424,16 @@ header{background:var(--panel);border-bottom:2px solid var(--accent);padding:0 1
 
 <div class="toast" id="toast"></div>
 
+<!-- 業者実績 Excel出力用（SheetJS） -->
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
 <!-- ============================================================
      通常JSで割増ロジック・UI操作（Firebaseとは独立して動く）
      ============================================================ -->
 <script>
-// ===== GAS Webhook連携 =====
+// ======================================================
+// GAS Webhook連携
+// ======================================================
 // ★デプロイ後にURLを貼り替えてください
 var GAS_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbwtvRVkvtuuBv-jGqExfsjSlS4w0TFLBJS5JsHPk6UXPXsfujsPg9CDSN7-cI13vSsU/exec';
 
@@ -360,7 +454,9 @@ function sendToGAS(entry) {
     .catch(function(err){ console.warn('GAS送信エラー:', err); });
 }
 
+// ======================================================
 // 割増ロジック（Firebase不要、ここだけで動く）
+// ======================================================
 function getSurOpts(item, vehicle) {
   if (!item || !vehicle) return [];
   if (item==='石'||item==='瓦') return [{k:'none',l:'割増なし'}];
@@ -380,6 +476,9 @@ function getSurOpts(item, vehicle) {
   ];
 }
 
+// ======================================================
+// オペレーター入力欄（状態管理・入力ハンドラ）
+// ======================================================
 var st = {plate:'',item:'',vehicle:'',surcharge:'',reasons:[],memo:'',customer:''};
 var localHist = [];
 var fbReady = false; // Firebase接続フラグ
@@ -488,6 +587,9 @@ function updateSendBtn() {
   btn.textContent= ok && !fbReady ? '送信する（Firebase未接続）' : '送信する';
 }
 
+// ======================================================
+// 送信処理
+// ======================================================
 function submitEntry() {
   var plate=st.plate, item=st.item, vehicle=st.vehicle, surcharge=st.surcharge;
   if (plate.length<1||!item||!vehicle||!surcharge) return;
@@ -521,7 +623,9 @@ function resetForm() {
   document.getElementById('sendBtn').textContent='送信する';
 }
 
-// ===== 送信履歴（warashi_sent） =====
+// ======================================================
+// 送信履歴（warashi_sent）
+// ======================================================
 var sentHist = []; // Firebase warashi_sent から読み込む
 
 function isSentDuplicate(entry) {
@@ -689,7 +793,9 @@ function clearForm() {
   updatePreview(); updateSendBtn();
 }
 
+// ======================================================
 // 事務所
+// ======================================================
 var allEntries=[]; var cf='all';
 function renderOffice() {
   var list=allEntries.filter(function(e){return !e.deletedFromOffice;}).slice().reverse();
@@ -734,7 +840,9 @@ function renderStats() {
     +'<div class="stat-pill">累計 <span>'+allEntries.length+'件</span></div>';
 }
 
-// ===== 顧客集計タブ =====
+// ======================================================
+// 顧客集計タブ
+// ======================================================
 function renderCustomer() {
   var now = new Date();
   var todayStr = now.toDateString();
@@ -848,7 +956,9 @@ function clearAllCustomer() {
   Promise.all([p1,p2]).then(function(){showToast('消去しました');});
 }
 
-// ===== 設定タブ：顧客リスト管理 =====
+// ======================================================
+// 設定タブ：顧客リスト管理
+// ======================================================
 var customersMgr = []; // {id, name} の配列
 
 function renderCustomerListMgr() {
@@ -890,6 +1000,9 @@ function addCustomerFromSettings() {
   if (inp) inp.value = '';
 }
 
+// ======================================================
+// 共通操作（確認・削除・フィルタ）
+// ======================================================
 function confirmEntry(id){if(fbReady)fbConfirm(id);}
 function deleteEntry(id){
   if(!fbReady) return;
@@ -923,11 +1036,324 @@ function setFilter(f,btn){
   btn.classList.add('active'); renderOffice();
 }
 
+// ======================================================
+// RC販売入力
+// ======================================================
+function onRcQtyInput(el) {
+  el.value = el.value.replace(/[^0-9]/g,'');
+}
+function resetRcSalesForm() {
+  document.getElementById('rcCustomerInput').value = '';
+  document.getElementById('rcVehicleSelect').value = '';
+  document.getElementById('rcQtyInput').value = '1';
+}
+function submitRcSales() {
+  var customerEl = document.getElementById('rcCustomerInput');
+  var vehicleEl  = document.getElementById('rcVehicleSelect');
+  var qtyEl      = document.getElementById('rcQtyInput');
+  var customer   = customerEl.value.trim();
+  var vehicleType= vehicleEl.value;
+  var quantity   = parseInt(qtyEl.value, 10);
+
+  if (!customer)   { showToast('顧客名を入力してください', true); return; }
+  if (!vehicleType){ showToast('車種を選択してください', true); return; }
+  if (!quantity || quantity < 1) { showToast('数量を入力してください', true); return; }
+
+  var btn = document.getElementById('rcSubmitBtn');
+  btn.disabled = true;
+  window.fbRcSalesAdd({customer:customer, vehicleType:vehicleType, quantity:quantity})
+    .then(function(){
+      showToast('登録しました');
+      resetRcSalesForm();
+      btn.disabled = false;
+    })
+    .catch(function(){
+      showToast('登録に失敗しました', true);
+      btn.disabled = false;
+    });
+}
+
+// ======================================================
+// 業者実績照会
+// ======================================================
+// 今回はRC販売実績のみ実装。ガラ実績は次工程。
+var VD_VEHICLE_ORDER = ['軽','2t','4t','8t','10t'];
+var vdLastResults = []; // 直近の検索結果（Firestore再検索しないため保持）
+var vdDetailOpen = false;
+var graLastResults = []; // 直近のガラ搬入実績（Realtime Database / allEntries から抽出）
+var graDetailOpen = false;
+
+function onVdPeriodChange(el) {
+  var rangeEl = document.getElementById('vdCustomRange');
+  rangeEl.style.display = el.value === 'custom' ? 'block' : 'none';
+}
+
+function getVdDateRange() {
+  var period = document.getElementById('vdPeriodSelect').value;
+  var now = new Date();
+  var start, end = now;
+  if (period === '30') {
+    start = new Date(now.getTime() - 30*24*60*60*1000);
+  } else if (period === '90') {
+    start = new Date(now.getTime() - 90*24*60*60*1000);
+  } else if (period === '180') {
+    start = new Date(now.getTime() - 180*24*60*60*1000);
+  } else if (period === 'thisyear') {
+    start = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+  } else if (period === 'custom') {
+    var s = document.getElementById('vdStartDate').value;
+    var e = document.getElementById('vdEndDate').value;
+    if (!s || !e) return null;
+    start = new Date(s + 'T00:00:00');
+    end = new Date(e + 'T23:59:59');
+  } else {
+    return null;
+  }
+  return {start:start, end:end};
+}
+
+function formatVdDate(ts) {
+  var d = (ts && typeof ts.toDate === 'function') ? ts.toDate() : new Date(ts);
+  return d.getFullYear() + '/' + pad(d.getMonth()+1) + '/' + pad(d.getDate());
+}
+
+function vdTimeValue(row) {
+  var ts = row.createdAt;
+  if (ts && typeof ts.toDate === 'function') return ts.toDate().getTime();
+  if (ts) return new Date(ts).getTime();
+  return 0;
+}
+
+// rows: 検索済みのRC販売実績（最終RC販売日・合計・車種別・直近実績を表示）
+function renderVdResult(rows) {
+  vdDetailOpen = false;
+  var body = document.getElementById('vdResultBody');
+  var sorted = rows.slice().sort(function(a,b){ return vdTimeValue(b) - vdTimeValue(a); });
+
+  var html = '<div class="sel-label">最終RC販売日</div>';
+  html += '<div style="font-family:var(--mono);font-size:20px;font-weight:700;color:var(--accent);margin-bottom:12px;">'
+    + (sorted.length ? formatVdDate(sorted[0].createdAt) : '実績なし') + '</div>';
+
+  if (!sorted.length) {
+    body.innerHTML = html;
+    return;
+  }
+
+  html += '<div style="border-top:1px solid var(--border);margin-bottom:12px;"></div>';
+
+  var counts = {'軽':0,'2t':0,'4t':0,'8t':0,'10t':0};
+  var total = 0;
+  sorted.forEach(function(r){
+    var qty = r.quantity || 0;
+    total += qty;
+    if (counts.hasOwnProperty(r.vehicleType)) counts[r.vehicleType] += qty;
+  });
+
+  html += '<div class="stat-pill" style="margin-bottom:12px;">合計 <span>' + total + '台</span></div>';
+  html += '<div class="customer-list-mgr">';
+  VD_VEHICLE_ORDER.forEach(function(v){
+    html += '<div class="customer-list-row">';
+    html += '<span class="customer-list-name">' + v + '</span>';
+    html += '<span class="cust-count">' + (counts[v]||0) + '台</span>';
+    html += '</div>';
+  });
+  html += '</div>';
+
+  html += '<div style="border-top:1px solid var(--border);margin-top:12px;"></div>';
+  html += '<div style="text-align:center;margin-top:10px;">';
+  html += '<button type="button" class="act-btn" id="vdDetailToggleBtn" onclick="toggleVdDetail()">▼ 直近販売実績</button>';
+  html += '</div>';
+  html += '<div id="vdDetailList" style="display:none;margin-top:8px;"></div>';
+  body.innerHTML = html;
+}
+
+function renderVdDetailRows(rows) {
+  var sorted = rows.slice().sort(function(a,b){ return vdTimeValue(b) - vdTimeValue(a); }).slice(0, 20);
+  var html = '';
+  sorted.forEach(function(r){
+    html += '<div class="cust-row">';
+    html += '<span class="cust-row-time">' + formatVdDate(r.createdAt) + '</span>';
+    html += '<span class="badge badge-vehicle">' + r.vehicleType + '</span>';
+    html += '<span class="cust-count">' + (r.quantity||0) + '台</span>';
+    html += '</div>';
+  });
+  return html;
+}
+
+function toggleVdDetail() {
+  vdDetailOpen = !vdDetailOpen;
+  var btn = document.getElementById('vdDetailToggleBtn');
+  var list = document.getElementById('vdDetailList');
+  if (vdDetailOpen) {
+    list.innerHTML = renderVdDetailRows(vdLastResults);
+    list.style.display = 'block';
+    btn.textContent = '▲ 直近販売実績を閉じる';
+  } else {
+    list.style.display = 'none';
+    btn.textContent = '▼ 直近販売実績';
+  }
+}
+
+// ガラ搬入実績（Realtime Database / allEntries を検索。Firestoreは使用しない）
+function renderGaraResult(totalCount, counts) {
+  graDetailOpen = false;
+  var body = document.getElementById('graResultBody');
+  var html = '<div class="stat-pill" style="margin-bottom:12px;">合計 <span>' + totalCount + '台</span></div>';
+  html += '<div class="customer-list-mgr">';
+  VD_VEHICLE_ORDER.forEach(function(v){
+    html += '<div class="customer-list-row">';
+    html += '<span class="customer-list-name">' + v + '</span>';
+    html += '<span class="cust-count">' + (counts[v]||0) + '台</span>';
+    html += '</div>';
+  });
+  html += '</div>';
+  html += '<div style="text-align:center;margin-top:10px;">';
+  html += '<button type="button" class="act-btn" id="graDetailToggleBtn" onclick="toggleGraDetail()">▼ 詳細</button>';
+  html += '</div>';
+  html += '<div id="graDetailList" style="display:none;margin-top:8px;"></div>';
+  body.innerHTML = html;
+}
+
+function renderGaraDetailRows(rows) {
+  var sorted = rows.slice().sort(function(a,b){ return new Date(b.timestamp) - new Date(a.timestamp); });
+  var html = '';
+  sorted.forEach(function(e){
+    var d = new Date(e.timestamp);
+    var dateStr = d.getFullYear() + '/' + pad(d.getMonth()+1) + '/' + pad(d.getDate());
+    html += '<div class="cust-row">';
+    html += '<span class="cust-row-time">' + dateStr + '</span>';
+    html += '<span class="cust-row-plate">' + (e.plate||'----') + '</span>';
+    html += '<span class="badge badge-item">' + e.item + '</span>';
+    html += '<span class="badge badge-vehicle">' + e.vehicle + '</span>';
+    html += '<span class="badge badge-' + e.surcharge + '">' + scLbl(e.surcharge) + '</span>';
+    html += '</div>';
+  });
+  return html;
+}
+
+function toggleGraDetail() {
+  graDetailOpen = !graDetailOpen;
+  var btn = document.getElementById('graDetailToggleBtn');
+  var list = document.getElementById('graDetailList');
+  if (graDetailOpen) {
+    list.innerHTML = renderGaraDetailRows(graLastResults);
+    list.style.display = 'block';
+    btn.textContent = '▲ 詳細を閉じる';
+  } else {
+    list.style.display = 'none';
+    btn.textContent = '▼ 詳細';
+  }
+}
+
+function searchGaraResults(customer, range) {
+  var body = document.getElementById('graResultBody');
+  graLastResults = allEntries.filter(function(e){
+    if (e.customer !== customer) return false;
+    var t = new Date(e.timestamp).getTime();
+    return t >= range.start.getTime() && t <= range.end.getTime();
+  });
+  if (!graLastResults.length) {
+    body.innerHTML = '<div class="cust-empty">該当するガラ搬入実績はありません。</div>';
+    updateVdExcelBtnState();
+    return;
+  }
+  var counts = {'軽':0,'2t':0,'4t':0,'8t':0,'10t':0};
+  var total = 0;
+  graLastResults.forEach(function(e){
+    total++;
+    if (counts.hasOwnProperty(e.vehicle)) counts[e.vehicle]++;
+  });
+  renderGaraResult(total, counts);
+  updateVdExcelBtnState();
+}
+
+// Excel出力ボタンの有効/無効切替（検索結果が1件もない場合は押せない）
+function updateVdExcelBtnState() {
+  var btn = document.getElementById('vdExcelBtn');
+  if (!btn) return;
+  btn.disabled = !(vdLastResults.length || graLastResults.length);
+}
+
+function exportVdExcel() {
+  if (!vdLastResults.length && !graLastResults.length) return;
+  var customer = document.getElementById('vdCustomerInput').value.trim();
+
+  var rcRows = [['日付','車種','数量']];
+  var rcTotal = 0;
+  vdLastResults.slice().sort(function(a,b){ return vdTimeValue(b) - vdTimeValue(a); }).forEach(function(r){
+    var qty = r.quantity || 0;
+    rcTotal += qty;
+    rcRows.push([formatVdDate(r.createdAt), r.vehicleType, qty]);
+  });
+  rcRows.push(['', '合計数量', rcTotal]);
+
+  var graRows = [['日付','車番','品目','車種','割増']];
+  graLastResults.slice().sort(function(a,b){ return new Date(b.timestamp) - new Date(a.timestamp); }).forEach(function(e){
+    var d = new Date(e.timestamp);
+    var dateStr = d.getFullYear() + '/' + pad(d.getMonth()+1) + '/' + pad(d.getDate());
+    graRows.push([dateStr, e.plate||'----', e.item, e.vehicle, scLbl(e.surcharge)]);
+  });
+  graRows.push(['', '', '', '総台数', graLastResults.length]);
+
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rcRows), 'RC販売実績');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(graRows), 'ガラ搬入実績');
+
+  var now = new Date();
+  var ymd = now.getFullYear() + pad(now.getMonth()+1) + pad(now.getDate());
+  var fname = '業者実績_' + (customer || '顧客名なし') + '_' + ymd + '.xlsx';
+  XLSX.writeFile(wb, fname);
+}
+
+function searchVendorDashboard() {
+  var customer = document.getElementById('vdCustomerInput').value.trim();
+  var range = getVdDateRange();
+  if (!range) { showToast('開始日と終了日を選択してください', true); return; }
+
+  var body = document.getElementById('vdResultBody');
+  body.innerHTML = '<div class="cust-empty">検索中…</div>';
+
+  window.fbRcSalesSearch({customer:customer, start:range.start, end:range.end}).then(function(rows){
+    vdLastResults = rows;
+    renderVdResult(rows);
+    updateVdExcelBtnState();
+  }).catch(function(){
+    vdLastResults = [];
+    showToast('検索に失敗しました', true);
+    body.innerHTML = '<div class="cust-empty">検索してください。</div>';
+    updateVdExcelBtnState();
+  });
+
+  searchGaraResults(customer, range);
+}
+
+function resetVendorDashboard() {
+    document.getElementById('vdCustomerInput').value = '';
+    document.getElementById('vdPeriodSelect').value = '90';
+    document.getElementById('vdStartDate').value = '';
+    document.getElementById('vdEndDate').value = '';
+    document.getElementById('vdCustomRange').style.display = 'none';
+    document.getElementById('vdResultBody').innerHTML = '<div class="cust-empty">検索してください。</div>';
+    document.getElementById('graResultBody').innerHTML = '<div class="cust-empty">検索してください。</div>';
+    vdLastResults = [];
+    vdDetailOpen = false;
+    graLastResults = [];
+    graDetailOpen = false;
+    updateVdExcelBtnState();
+
+    showToast('検索条件をリセットしました。');
+}
+
+// ======================================================
+// 画面切替（タブ制御）
+// ======================================================
 function setMode(mode,btn){
   document.querySelectorAll('.mode-btn').forEach(function(b){b.classList.remove('active');});
   btn.classList.add('active');
   document.getElementById('viewOperator').classList.toggle('active',mode==='operator');
   document.getElementById('viewOffice').classList.toggle('active',mode==='office');
+  document.getElementById('viewRcSales').classList.toggle('active',mode==='rcsales');
+  document.getElementById('viewVendorDashboard').classList.toggle('active',mode==='dashboard');
   document.getElementById('viewSettings').classList.toggle('active',mode==='settings');
   if (mode==='settings') renderCustomerListMgr();
 }
@@ -948,7 +1374,9 @@ function updateDate(){
 }
 updateDate(); setInterval(updateDate,60000);
 
+// ======================================================
 // Firebase関数のスタブ（接続前は何もしない）
+// ======================================================
 var fbPush=function(){return Promise.reject('未接続');};
 var fbConfirm=function(){};
 var fbDelete=function(){};
@@ -963,6 +1391,10 @@ var fbSetOfficeDeleted=function(){};
 var fbSetOperatorDeleted=function(){};
 var fbSetOfficeFlagMany=function(){return Promise.resolve();};
 var fbSetOperatorFlagMany=function(){return Promise.resolve();};
+var fbRcSalesAdd=function(){return Promise.reject('未接続');};
+var fbRcSalesSearch=function(){return Promise.reject('未接続');};
+window.fbRcSalesAdd=fbRcSalesAdd;
+window.fbRcSalesSearch=fbRcSalesSearch;
 window.fbSentPush=fbSentPush;
 window.fbSentDelete=fbSentDelete;
 window.fbSentDeleteMany=fbSentDeleteMany;
@@ -995,12 +1427,36 @@ if (FIREBASE_CONFIG.apiKey === 'YOUR_API_KEY') {
   try {
     var { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
     var { getDatabase, ref, push, onValue, update, get } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js");
+    var { getFirestore, collection, addDoc, serverTimestamp, query, where, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
 
     var app   = initializeApp(FIREBASE_CONFIG);
     var db    = getDatabase(app);
     var dbRef = ref(db, 'warashi_entries');
     var sentRef = ref(db, 'warashi_sent');
     var custRef = ref(db, 'warashi_customers');
+
+    // ===== RC販売（Firestore） =====
+    var fsDb = getFirestore(app);
+    var rcSalesCol = collection(fsDb, 'rcSales');
+    window.fbRcSalesAdd = function(data){
+      return addDoc(rcSalesCol, {
+        customer: data.customer,
+        vehicleType: data.vehicleType,
+        quantity: data.quantity,
+        createdAt: serverTimestamp()
+      });
+    };
+    window.fbRcSalesSearch = function(cond){
+      var constraints = [where('customer','==', cond.customer)];
+      if (cond.start) constraints.push(where('createdAt','>=', cond.start));
+      if (cond.end)   constraints.push(where('createdAt','<=', cond.end));
+      var q = query.apply(null, [rcSalesCol].concat(constraints));
+      return getDocs(q).then(function(snap){
+        var rows = [];
+        snap.forEach(function(doc){ rows.push(doc.data()); });
+        return rows;
+      });
+    };
 
     // Firebase関数を本物に差し替え
     window.fbPush = function(entry){ return push(dbRef, entry); };
