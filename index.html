@@ -1078,7 +1078,7 @@ function submitRcSales() {
 // ======================================================
 // 今回はRC販売実績のみ実装。ガラ実績は次工程。
 var VD_VEHICLE_ORDER = ['軽','2t','4t','8t','10t'];
-var vdLastResults = []; // 直近の検索結果（Firestore再検索しないため保持）
+var vdLastResults = []; // 直近の検索結果（Realtime Database再検索しないため保持）
 var vdDetailOpen = false;
 var graLastResults = []; // 直近のガラ搬入実績（Realtime Database / allEntries から抽出）
 var graDetailOpen = false;
@@ -1113,15 +1113,12 @@ function getVdDateRange() {
 }
 
 function formatVdDate(ts) {
-  var d = (ts && typeof ts.toDate === 'function') ? ts.toDate() : new Date(ts);
+  var d = new Date(ts);
   return d.getFullYear() + '/' + pad(d.getMonth()+1) + '/' + pad(d.getDate());
 }
 
 function vdTimeValue(row) {
-  var ts = row.createdAt;
-  if (ts && typeof ts.toDate === 'function') return ts.toDate().getTime();
-  if (ts) return new Date(ts).getTime();
-  return 0;
+  return row.timestamp ? new Date(row.timestamp).getTime() : 0;
 }
 
 // rows: 検索済みのRC販売実績（最終RC販売日・合計・車種別・直近実績を表示）
@@ -1132,7 +1129,7 @@ function renderVdResult(rows) {
 
   var html = '<div class="sel-label">最終RC販売日</div>';
   html += '<div style="font-family:var(--mono);font-size:20px;font-weight:700;color:var(--accent);margin-bottom:12px;">'
-    + (sorted.length ? formatVdDate(sorted[0].createdAt) : '実績なし') + '</div>';
+    + (sorted.length ? formatVdDate(sorted[0].timestamp) : '実績なし') + '</div>';
 
   if (!sorted.length) {
     body.innerHTML = html;
@@ -1172,7 +1169,7 @@ function renderVdDetailRows(rows) {
   var html = '';
   sorted.forEach(function(r){
     html += '<div class="cust-row">';
-    html += '<span class="cust-row-time">' + formatVdDate(r.createdAt) + '</span>';
+    html += '<span class="cust-row-time">' + formatVdDate(r.timestamp) + '</span>';
     html += '<span class="badge badge-vehicle">' + r.vehicleType + '</span>';
     html += '<span class="cust-count">' + (r.quantity||0) + '台</span>';
     html += '</div>';
@@ -1283,7 +1280,7 @@ function exportVdExcel() {
   vdLastResults.slice().sort(function(a,b){ return vdTimeValue(b) - vdTimeValue(a); }).forEach(function(r){
     var qty = r.quantity || 0;
     rcTotal += qty;
-    rcRows.push([formatVdDate(r.createdAt), r.vehicleType, qty]);
+    rcRows.push([formatVdDate(r.timestamp), r.vehicleType, qty]);
   });
   rcRows.push(['', '合計数量', rcTotal]);
 
@@ -1427,7 +1424,6 @@ if (FIREBASE_CONFIG.apiKey === 'YOUR_API_KEY') {
   try {
     var { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
     var { getDatabase, ref, push, onValue, update, get } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js");
-    var { getFirestore, collection, addDoc, serverTimestamp, query, where, getDocs } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
 
     var app   = initializeApp(FIREBASE_CONFIG);
     var db    = getDatabase(app);
@@ -1435,25 +1431,27 @@ if (FIREBASE_CONFIG.apiKey === 'YOUR_API_KEY') {
     var sentRef = ref(db, 'warashi_sent');
     var custRef = ref(db, 'warashi_customers');
 
-    // ===== RC販売（Firestore） =====
-    var fsDb = getFirestore(app);
-    var rcSalesCol = collection(fsDb, 'rcSales');
+    // ===== RC販売（Realtime Database） =====
+    var rcSalesRef = ref(db, 'warashi_rcsales');
     window.fbRcSalesAdd = function(data){
-      return addDoc(rcSalesCol, {
+      return push(rcSalesRef, {
         customer: data.customer,
         vehicleType: data.vehicleType,
         quantity: data.quantity,
-        createdAt: serverTimestamp()
+        timestamp: new Date().toISOString()
       });
     };
     window.fbRcSalesSearch = function(cond){
-      var constraints = [where('customer','==', cond.customer)];
-      if (cond.start) constraints.push(where('createdAt','>=', cond.start));
-      if (cond.end)   constraints.push(where('createdAt','<=', cond.end));
-      var q = query.apply(null, [rcSalesCol].concat(constraints));
-      return getDocs(q).then(function(snap){
+      return get(rcSalesRef).then(function(snap){
         var rows = [];
-        snap.forEach(function(doc){ rows.push(doc.data()); });
+        snap.forEach(function(c){
+          var v = c.val();
+          if (v.customer !== cond.customer) return;
+          var t = new Date(v.timestamp).getTime();
+          if (cond.start && t < cond.start.getTime()) return;
+          if (cond.end && t > cond.end.getTime()) return;
+          rows.push(v);
+        });
         return rows;
       });
     };
