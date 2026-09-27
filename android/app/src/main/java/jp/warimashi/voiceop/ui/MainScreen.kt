@@ -111,6 +111,7 @@ fun MainScreen(
                     )
                 }
                 HelpCard()
+                DiagCard(state)
             }
 
             if (pocketMode) PocketOverlay(state, onExit = { onPocketMode(false) })
@@ -210,6 +211,24 @@ private fun SpeechCard(state: UiState) {
             "読み上げ: " + state.lastSpeech.ifEmpty { "—" },
             color = if (state.lastWasError) Err else Text1, fontSize = 15.sp,
         )
+    }
+}
+
+/** 音声認識の診断ログ。うまく動かないときにスクリーンショットで共有してもらう。 */
+@Composable
+private fun DiagCard(state: UiState) {
+    Column(
+        Modifier.fillMaxWidth().border(1.dp, Border, RoundedCornerShape(10.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            "診断ログ" + if (state.usingSystemDialog) "（標準の音声入力画面を使用中）" else "",
+            color = Text2, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+        )
+        if (state.diag.isEmpty()) Text("—", color = Text2, fontSize = 11.sp)
+        state.diag.forEach {
+            Text(it, color = Text2, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+        }
     }
 }
 

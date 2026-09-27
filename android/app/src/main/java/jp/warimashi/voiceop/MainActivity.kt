@@ -1,6 +1,7 @@
 package jp.warimashi.voiceop
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.nfc.NfcAdapter
@@ -8,6 +9,7 @@ import android.nfc.Tag
 import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
+import android.speech.RecognizerIntent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,6 +20,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import jp.warimashi.voiceop.ui.MainScreen
 import jp.warimashi.voiceop.ui.NfcStatus
 
@@ -41,6 +45,28 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         micGranted = it
     }
 
+    /** 認識サービスが使えない端末向け: Android 標準の音声入力画面。 */
+    private val systemDialog = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val list = if (result.resultCode == RESULT_OK) {
+            result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+        } else null
+        vm.onSystemDialogResult(list)
+    }
+
+    private fun launchSystemDialog() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ja-JP")
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "話してください")
+        }
+        try {
+            systemDialog.launch(intent)
+        } catch (e: ActivityNotFoundException) {
+            vm.onSystemDialogUnavailable()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -50,6 +76,10 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         micGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
         if (!micGranted) micPermission.launch(Manifest.permission.RECORD_AUDIO)
+
+        lifecycleScope.launch {
+            vm.launchSystemDialog.collect { launchSystemDialog() }
+        }
 
         setContent {
             val state by vm.state.collectAsStateWithLifecycle()

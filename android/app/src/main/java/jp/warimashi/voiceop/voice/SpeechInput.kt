@@ -3,6 +3,7 @@ package jp.warimashi.voiceop.voice
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -26,7 +27,12 @@ import jp.warimashi.voiceop.AppConfig
  *
  * メインスレッドから呼ぶこと。
  */
-class SpeechInput(private val context: Context, private val listener: Listener) {
+class SpeechInput(
+    private val context: Context,
+    private val listener: Listener,
+    /** 診断用のメッセージ（画面の診断ログにも出す）。 */
+    private val trace: (String) -> Unit = {},
+) {
 
     interface Listener {
         /** マイクが開いた（セッションの最初の1回だけ）。 */
@@ -113,13 +119,20 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
      * 機種によっては既定の認識サービス（メーカー独自のもの等）がこのアプリからは使えないため、
      * エラーになったら次のサービスで試し直す。
      */
-    private val services: List<ComponentName?> by lazy {
+    private class Service(val name: String, val create: (Context) -> SpeechRecognizer)
+
+    private val services: List<Service> by lazy {
         val found = context.packageManager
             .queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0)
             .map { ComponentName(it.serviceInfo.packageName, it.serviceInfo.name) }
             .sortedBy { if (it.packageName.startsWith("com.google.")) 0 else 1 }
-        Log.i(TAG, "recognition services: ${found.joinToString { it.flattenToShortString() }}")
-        found + null
+        val list = found.map { cn ->
+            Service(cn.flattenToShortString()) { SpeechRecognizer.createSpeechRecognizer(it, cn) }
+        } + Service("default") { SpeechRecognizer.createSpeechRecognizer(it) }
+        val onDevice = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
+        ) listOf(Service("on-device") { SpeechRecognizer.createOnDeviceSpeechRecognizer(it) }) else emptyList()
+        (list + onDevice).also { all -> log("recognition services: ${all.joinToString { it.name }}") }
     }
 
     /** 今使っている認識サービスの番号（うまく動いたものを次回以降も使う）。 */
@@ -127,15 +140,20 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
     private var switchesThisSession = 0
 
     private val serviceName: String
-        get() = services.getOrNull(serviceIndex)?.flattenToShortString() ?: "default"
+        get() = services.getOrNull(serviceIndex)?.name ?: "?"
 
     private fun listen() {
         if (!active) return
         recognizer?.destroy()
-        val component = services.getOrNull(serviceIndex)
-        Log.i(TAG, "startListening via $serviceName")
-        val r = if (component != null) SpeechRecognizer.createSpeechRecognizer(context, component)
-        else SpeechRecognizer.createSpeechRecognizer(context)
+        val service = services[serviceIndex]
+        log("startListening via ${service.name}")
+        val r = try {
+            service.create(context)
+        } catch (e: Exception) {
+            log("create failed: ${e.javaClass.simpleName} ${e.message}")
+            if (!switchService()) fail(SpeechRecognizer.ERROR_CLIENT)
+            return
+        }
         r.setRecognitionListener(Callback(r))
         recognizer = r
         r.startListening(buildIntent())
@@ -147,7 +165,7 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
         switchesThisSession++
         retries = 0
         serviceIndex = (serviceIndex + 1) % services.size
-        Log.w(TAG, "switching recognition service to $serviceName")
+        log("switching recognition service to $serviceName")
         listen()
         return true
     }
@@ -158,7 +176,7 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
         clearTimers()
         recognizer?.destroy()
         recognizer = null
-        Log.i(TAG, "session finished: ${segments.size} segment(s)")
+        log("session finished: ${segments.size} segment(s)")
         if (segments.isEmpty()) listener.onNoSpeech() else listener.onFinished(joinSegments())
     }
 
@@ -191,7 +209,7 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
 
         override fun onReadyForSpeech(params: Bundle?) {
             if (!current) return
-            Log.i(TAG, "ready ($serviceName)")
+            log("ready ($serviceName)")
             retries = 0
             if (!readyNotified) {
                 readyNotified = true
@@ -201,7 +219,7 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
 
         override fun onBeginningOfSpeech() {
             if (!current) return
-            Log.i(TAG, "beginning of speech")
+            log("beginning of speech")
             // 話し始めた（続きを話している）ので、終了待ちを取り消す
             speechStarted = true
             main.removeCallbacks(startTimeout)
@@ -214,7 +232,7 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
             if (!current) return
             val list = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
                 .filter { it.isNotBlank() }
-            Log.i(TAG, "results: $list")
+            log("results: $list")
             if (list.isNotEmpty()) segments += list
             if (stopping) {
                 finish()
@@ -233,7 +251,7 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
 
         override fun onError(error: Int) {
             if (!current) return
-            Log.w(TAG, "error ${errorName(error)} ($serviceName)")
+            log("error ${errorName(error)} ($serviceName)")
             if (stopping) {
                 finish()
                 return
@@ -286,6 +304,11 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
         // 対応している認識エンジンでは無音判定そのものも長くなる（無視されてもセッション側で補う）
         putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, AppConfig.SPEECH_END_SILENCE_MS)
         putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, AppConfig.SPEECH_END_SILENCE_MS)
+    }
+
+    private fun log(msg: String) {
+        Log.i(TAG, msg)
+        trace(msg)
     }
 
     companion object {

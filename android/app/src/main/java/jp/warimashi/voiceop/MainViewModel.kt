@@ -20,7 +20,9 @@ import jp.warimashi.voiceop.voice.SpeechInput
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -41,6 +43,10 @@ data class UiState(
     /** この端末から送信した件数（今回の起動中）。 */
     val sentCount: Int = 0,
     val lastSent: String = "",
+    /** 音声認識の診断ログ（新しい順）。画面に出してスクリーンショットで共有できるようにする。 */
+    val diag: List<String> = emptyList(),
+    /** 認識サービスが使えず、Android 標準の音声入力画面で聞き取っているか。 */
+    val usingSystemDialog: Boolean = false,
 )
 
 /**
@@ -53,7 +59,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
 
     private val speaker = Speaker(app)
     private val cues = Cues(app)
-    private val speech = SpeechInput(app, this)
+    private val speech = SpeechInput(app, this) { trace(it) }
+
+    /** Activity に「Android 標準の音声入力画面を開いて」と頼むイベント。 */
+    private val _launchSystemDialog = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val launchSystemDialog: SharedFlow<Unit> = _launchSystemDialog
+
+    /** 認識サービスが使えなかった端末では、以降は標準の音声入力画面を使う。 */
+    private var useSystemDialog = false
+    private var systemDialogOpen = false
     private val firebase = FirebaseRestClient(AppConfig.FIREBASE_DB_URL)
     private val gas = GasClient(AppConfig.GAS_WEBHOOK_URL)
 
@@ -76,11 +90,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
     }
 
     private fun startListening() {
-        if (!speech.isAvailable) {
-            say("音声認識が使えません。端末の設定を確認してください", error = true)
+        speaker.stop()
+        if (useSystemDialog || !speech.isAvailable) {
+            cues.listenStart()
+            openSystemDialog()
             return
         }
-        speaker.stop()
         _state.update { it.copy(phase = Phase.STARTING) }
         cues.listenStart()
         viewModelScope.launch {
@@ -93,6 +108,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
 
     /** 画面が消える・アプリが裏に回るときは聞き取りをやめる。 */
     fun onPause() {
+        if (systemDialogOpen) return // 標準の音声入力画面が前に出ただけ
         if (_state.value.phase == Phase.LISTENING || _state.value.phase == Phase.STARTING) {
             speech.cancel()
             stopPulse()
@@ -122,6 +138,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
         stopPulse()
         _state.update { it.copy(phase = Phase.IDLE) }
         Log.w(SpeechInput.TAG, "speech failed: ${SpeechInput.errorName(error)} via $service")
+        trace("speech failed: ${SpeechInput.errorName(error)} via $service")
+        if (error != SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+            // どの認識サービスも使えなかった。Android 標準の音声入力画面で聞き直す
+            trace("fallback: system voice input dialog")
+            useSystemDialog = true
+            openSystemDialog()
+            return
+        }
         val msg = when (error) {
             SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "マイクの使用が許可されていません"
             SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_SERVER ->
@@ -132,6 +156,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
         }
         // 画面には原因調査用にエラーの種類と認識サービスも出す（読み上げはしない）
         say(msg, error = true, detail = "［${SpeechInput.errorName(error)} / $service］")
+    }
+
+    // ------------------------------------------------------------------
+    // Android 標準の音声入力画面（認識サービスが使えない端末向けの予備）
+    // ------------------------------------------------------------------
+
+    private fun openSystemDialog() {
+        systemDialogOpen = true
+        _state.update { it.copy(phase = Phase.LISTENING, usingSystemDialog = true) }
+        _launchSystemDialog.tryEmit(Unit)
+    }
+
+    /** 標準の音声入力画面の結果。null はキャンセル・失敗。 */
+    fun onSystemDialogResult(candidates: List<String>?) {
+        systemDialogOpen = false
+        trace("system dialog result: ${candidates ?: "none"}")
+        if (candidates.isNullOrEmpty()) onNoSpeech() else onFinished(candidates)
+    }
+
+    fun onSystemDialogUnavailable() {
+        systemDialogOpen = false
+        trace("system dialog unavailable")
+        _state.update { it.copy(phase = Phase.IDLE) }
+        say("この端末では音声入力が使えません。Google アプリか音声入力の設定を確認してください", error = true)
+    }
+
+    private fun trace(msg: String) {
+        val time = SimpleDateFormat("HH:mm:ss", Locale.JAPAN).format(Date())
+        _state.update { it.copy(diag = (listOf("$time $msg") + it.diag).take(30)) }
     }
 
     // 聞き取り中は一定間隔で合図し、ポケットの中でもマイクが開いているとわかるようにする
@@ -162,6 +215,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
     }
 
     private fun interpret(candidates: List<String>) {
+        trace("heard: $candidates")
         val outcome = VoiceInterpreter.handle(_state.value.buffer, candidates, customers)
         _state.update { it.copy(buffer = outcome.buffer) }
         when (outcome.action) {
@@ -219,6 +273,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
     private fun say(text: String, error: Boolean = false, detail: String = "") {
         if (error) cues.error()
         _state.update { it.copy(lastSpeech = text + detail, lastWasError = error) }
+        trace("say: $text$detail")
         speaker.speak(text)
     }
 
