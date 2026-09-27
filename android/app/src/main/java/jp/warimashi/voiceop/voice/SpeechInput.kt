@@ -15,6 +15,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import jp.warimashi.voiceop.AppConfig
+import jp.warimashi.voiceop.core.RecognitionHints
 
 /**
  * 1回のタップ分の聞き取り（セッション）。
@@ -155,8 +156,17 @@ class SpeechInput(
     private val serviceName: String
         get() = services.getOrNull(serviceIndex)?.name ?: "?"
 
+    private var hintsLogged = false
+
     private fun listen() {
         if (!active) return
+        if (!hintsLogged) {
+            hintsLogged = true
+            log(
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) "biasing hints: ${RecognitionHints.words.size} words"
+                else "biasing hints: not supported (Android 13+ only)"
+            )
+        }
         recognizer?.destroy()
         val service = services[serviceIndex]
         log("startListening via ${service.name}")
@@ -339,6 +349,10 @@ class SpeechInput(
         // 対応している認識エンジンでは無音判定そのものも長くなる（無視されてもセッション側で補う）
         putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, AppConfig.SPEECH_END_SILENCE_MS)
         putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, AppConfig.SPEECH_END_SILENCE_MS)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            // 固定候補の語と「サイズ＋割増」の組み合わせを認識されやすくする（対応している認識エンジンのみ有効）
+            putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(RecognitionHints.words))
+        }
     }
 
     private fun log(msg: String) {
