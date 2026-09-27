@@ -1,8 +1,10 @@
 package jp.warimashi.voiceop.voice
 
+import android.Manifest
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -115,9 +117,10 @@ class SpeechInput(
     fun destroy() = cancel()
 
     /**
-     * 端末に入っている音声認識サービス。Google のものを優先し、最後に端末の既定（null）。
-     * 機種によっては既定の認識サービス（メーカー独自のもの等）がこのアプリからは使えないため、
-     * エラーになったら次のサービスで試し直す。
+     * 端末に入っている音声認識サービス。Google の GoogleTTSRecognitionService を最優先し、
+     * 次に他の Google 製、その他、端末の既定、端末内認識の順。
+     * 音声入力用ではない認識サービス（Claude アプリの音声アシスタント用など）は除外する。
+     * まだ一度も聞き取れていないサービスがエラーになったときだけ、次のサービスで試し直す。
      */
     private class Service(val name: String, val create: (Context) -> SpeechRecognizer)
 
@@ -125,7 +128,14 @@ class SpeechInput(
         val found = context.packageManager
             .queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0)
             .map { ComponentName(it.serviceInfo.packageName, it.serviceInfo.name) }
-            .sortedBy { if (it.packageName.startsWith("com.google.")) 0 else 1 }
+            .filterNot { cn -> EXCLUDED_PACKAGE_PREFIXES.any { cn.packageName.startsWith(it) } }
+            .sortedBy { cn ->
+                when {
+                    cn.packageName == GOOGLE_TTS_PACKAGE -> 0
+                    cn.packageName.startsWith("com.google.") -> 1
+                    else -> 2
+                }
+            }
         val list = found.map { cn ->
             Service(cn.flattenToShortString()) { SpeechRecognizer.createSpeechRecognizer(it, cn) }
         } + Service("default") { SpeechRecognizer.createSpeechRecognizer(it) }
@@ -137,6 +147,9 @@ class SpeechInput(
 
     /** 今使っている認識サービスの番号（うまく動いたものを次回以降も使う）。 */
     private var serviceIndex = 0
+
+    /** 実際に聞き取れた（結果を返した）サービスの番号。以後はこのサービスから切り替えない。 */
+    private var provenIndex: Int? = null
     private var switchesThisSession = 0
 
     private val serviceName: String
@@ -233,7 +246,10 @@ class SpeechInput(
             val list = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
                 .filter { it.isNotBlank() }
             log("results: $list")
-            if (list.isNotEmpty()) segments += list
+            if (list.isNotEmpty()) {
+                segments += list
+                provenIndex = serviceIndex
+            }
             if (stopping) {
                 finish()
                 return
@@ -246,7 +262,10 @@ class SpeechInput(
                 main.postDelayed(endSilence, AppConfig.SPEECH_END_SILENCE_MS)
                 endPending = true
             }
-            listen()
+            // 同じサービスで続きを聞く（すぐ作り直すと BUSY になる端末があるので少し待つ）
+            recognizer?.destroy()
+            recognizer = null
+            main.postDelayed(retryListen, 200)
         }
 
         override fun onError(error: Int) {
@@ -271,14 +290,9 @@ class SpeechInput(
                         else -> finish()
                     }
                 }
-                SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_CLIENT -> {
-                    if (retries++ < 3) main.postDelayed(retryListen, 300)
-                    else if (!switchService()) fail(error)
-                }
-                // 権限・通信の問題はサービスを替えても直らない
-                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS,
-                SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> fail(error)
-                else -> if (!switchService()) fail(error)
+                SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_CLIENT ->
+                    if (retries++ < 3) main.postDelayed(retryListen, 300) else handleFailure(error)
+                else -> handleFailure(error)
             }
         }
 
@@ -288,6 +302,27 @@ class SpeechInput(
         override fun onPartialResults(partialResults: Bundle?) = Unit
         override fun onEvent(eventType: Int, params: Bundle?) = Unit
     }
+
+    /** 聞き直しても直らないエラー。 */
+    private fun handleFailure(error: Int) {
+        when {
+            // すでに聞き取れた分があれば、それで1回分として確定する（途中のエラーで捨てない）
+            segments.isNotEmpty() -> {
+                log("keep ${segments.size} segment(s) despite ${errorName(error)}")
+                finish()
+            }
+            // 通信の問題はサービスを替えても直らない
+            error == SpeechRecognizer.ERROR_NETWORK || error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> fail(error)
+            // このアプリ自身にマイク権限がない
+            error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS && !hasMicPermission() -> fail(error)
+            // 実際に聞き取れたことのあるサービスからは切り替えない
+            serviceIndex == provenIndex -> fail(error)
+            else -> if (!switchService()) fail(error)
+        }
+    }
+
+    private fun hasMicPermission() =
+        context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
 
     private fun fail(error: Int) {
         val name = serviceName
@@ -313,6 +348,12 @@ class SpeechInput(
 
     companion object {
         const val TAG = "VoiceOp"
+
+        /** Google の音声認識（「音声認識と合成」アプリ）。実機で正しく聞き取れたもの。 */
+        const val GOOGLE_TTS_PACKAGE = "com.google.android.tts"
+
+        /** 音声入力用ではない認識サービス（Claude アプリの音声アシスタント用など）。使わない。 */
+        val EXCLUDED_PACKAGE_PREFIXES = listOf("com.anthropic.")
 
         fun errorName(error: Int): String = when (error) {
             SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "NETWORK_TIMEOUT(1)"
