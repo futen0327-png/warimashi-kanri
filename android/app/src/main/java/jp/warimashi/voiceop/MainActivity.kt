@@ -60,7 +60,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                 pocketMode = pocketMode,
                 onMic = { if (micGranted) vm.onTrigger() else micPermission.launch(Manifest.permission.RECORD_AUDIO) },
                 onCommand = vm::onCommand,
-                onPocketMode = ::setPocketMode,
+                onPocketMode = ::applyPocketMode,
                 onOpenNfcSettings = { startActivity(Intent(Settings.ACTION_NFC_SETTINGS)) },
                 onRefreshCustomers = vm::refreshCustomers,
             )
@@ -103,7 +103,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         }
     }
 
-    private fun setPocketMode(on: Boolean) {
+    private fun applyPocketMode(on: Boolean) {
         pocketMode = on
         window.attributes = window.attributes.apply {
             screenBrightness = if (on) 0.01f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
