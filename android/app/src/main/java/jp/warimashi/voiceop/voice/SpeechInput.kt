@@ -1,16 +1,17 @@
 package jp.warimashi.voiceop.voice
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.speech.RecognitionService
+import android.util.Log
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import jp.warimashi.voiceop.AppConfig
-import jp.warimashi.voiceop.core.Vocabulary
 
 /**
  * 1回のタップ分の聞き取り（セッション）。
@@ -37,8 +38,8 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
         /** 待っても何も話されなかった。 */
         fun onNoSpeech()
 
-        /** 続行できないエラー（マイク権限・通信など）。 */
-        fun onError(error: Int)
+        /** 続行できないエラー（マイク権限・通信など）。service は最後に試した認識サービス。 */
+        fun onError(error: Int, service: String)
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -77,6 +78,7 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
         speechStarted = false
         endPending = false
         retries = 0
+        switchesThisSession = 0
         segments.clear()
         postStartTimeout(AppConfig.SPEECH_START_TIMEOUT_MS)
         main.postDelayed(maxLength, AppConfig.SPEECH_MAX_SESSION_MS)
@@ -106,13 +108,48 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
 
     fun destroy() = cancel()
 
+    /**
+     * 端末に入っている音声認識サービス。Google のものを優先し、最後に端末の既定（null）。
+     * 機種によっては既定の認識サービス（メーカー独自のもの等）がこのアプリからは使えないため、
+     * エラーになったら次のサービスで試し直す。
+     */
+    private val services: List<ComponentName?> by lazy {
+        val found = context.packageManager
+            .queryIntentServices(Intent(RecognitionService.SERVICE_INTERFACE), 0)
+            .map { ComponentName(it.serviceInfo.packageName, it.serviceInfo.name) }
+            .sortedBy { if (it.packageName.startsWith("com.google.")) 0 else 1 }
+        Log.i(TAG, "recognition services: ${found.joinToString { it.flattenToShortString() }}")
+        found + null
+    }
+
+    /** 今使っている認識サービスの番号（うまく動いたものを次回以降も使う）。 */
+    private var serviceIndex = 0
+    private var switchesThisSession = 0
+
+    private val serviceName: String
+        get() = services.getOrNull(serviceIndex)?.flattenToShortString() ?: "default"
+
     private fun listen() {
         if (!active) return
         recognizer?.destroy()
-        val r = SpeechRecognizer.createSpeechRecognizer(context)
+        val component = services.getOrNull(serviceIndex)
+        Log.i(TAG, "startListening via $serviceName")
+        val r = if (component != null) SpeechRecognizer.createSpeechRecognizer(context, component)
+        else SpeechRecognizer.createSpeechRecognizer(context)
         r.setRecognitionListener(Callback(r))
         recognizer = r
         r.startListening(buildIntent())
+    }
+
+    /** 次の認識サービスがあれば切り替えて聞き直す。 */
+    private fun switchService(): Boolean {
+        if (switchesThisSession >= services.size - 1) return false
+        switchesThisSession++
+        retries = 0
+        serviceIndex = (serviceIndex + 1) % services.size
+        Log.w(TAG, "switching recognition service to $serviceName")
+        listen()
+        return true
     }
 
     private fun finish() {
@@ -121,6 +158,7 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
         clearTimers()
         recognizer?.destroy()
         recognizer = null
+        Log.i(TAG, "session finished: ${segments.size} segment(s)")
         if (segments.isEmpty()) listener.onNoSpeech() else listener.onFinished(joinSegments())
     }
 
@@ -153,6 +191,7 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
 
         override fun onReadyForSpeech(params: Bundle?) {
             if (!current) return
+            Log.i(TAG, "ready ($serviceName)")
             retries = 0
             if (!readyNotified) {
                 readyNotified = true
@@ -162,6 +201,7 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
 
         override fun onBeginningOfSpeech() {
             if (!current) return
+            Log.i(TAG, "beginning of speech")
             // 話し始めた（続きを話している）ので、終了待ちを取り消す
             speechStarted = true
             main.removeCallbacks(startTimeout)
@@ -174,6 +214,7 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
             if (!current) return
             val list = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
                 .filter { it.isNotBlank() }
+            Log.i(TAG, "results: $list")
             if (list.isNotEmpty()) segments += list
             if (stopping) {
                 finish()
@@ -192,6 +233,7 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
 
         override fun onError(error: Int) {
             if (!current) return
+            Log.w(TAG, "error ${errorName(error)} ($serviceName)")
             if (stopping) {
                 finish()
                 return
@@ -213,9 +255,12 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
                 }
                 SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_CLIENT -> {
                     if (retries++ < 3) main.postDelayed(retryListen, 300)
-                    else fail(error)
+                    else if (!switchService()) fail(error)
                 }
-                else -> fail(error)
+                // 権限・通信の問題はサービスを替えても直らない
+                SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS,
+                SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> fail(error)
+                else -> if (!switchService()) fail(error)
             }
         }
 
@@ -227,8 +272,9 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
     }
 
     private fun fail(error: Int) {
+        val name = serviceName
         cancel()
-        listener.onError(error)
+        listener.onError(error, name)
     }
 
     private fun buildIntent() = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -240,14 +286,27 @@ class SpeechInput(private val context: Context, private val listener: Listener) 
         // 対応している認識エンジンでは無音判定そのものも長くなる（無視されてもセッション側で補う）
         putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, AppConfig.SPEECH_END_SILENCE_MS)
         putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, AppConfig.SPEECH_END_SILENCE_MS)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            // 対応する認識エンジンでは、固定候補の語を認識されやすくする
-            putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(biasingWords))
-        }
     }
 
-    private val biasingWords: List<String> by lazy {
-        (Vocabulary.items + Vocabulary.sizes + Vocabulary.surcharges + Vocabulary.reasons + Vocabulary.rejects)
-            .map { it.speech } + listOf("ナンバー", "品目", "サイズ", "割増", "理由", "客先", "拒否", "パス", "送信", "取消")
+    companion object {
+        const val TAG = "VoiceOp"
+
+        fun errorName(error: Int): String = when (error) {
+            SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "NETWORK_TIMEOUT(1)"
+            SpeechRecognizer.ERROR_NETWORK -> "NETWORK(2)"
+            SpeechRecognizer.ERROR_AUDIO -> "AUDIO(3)"
+            SpeechRecognizer.ERROR_SERVER -> "SERVER(4)"
+            SpeechRecognizer.ERROR_CLIENT -> "CLIENT(5)"
+            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "SPEECH_TIMEOUT(6)"
+            SpeechRecognizer.ERROR_NO_MATCH -> "NO_MATCH(7)"
+            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "RECOGNIZER_BUSY(8)"
+            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "INSUFFICIENT_PERMISSIONS(9)"
+            10 -> "TOO_MANY_REQUESTS(10)"
+            11 -> "SERVER_DISCONNECTED(11)"
+            12 -> "LANGUAGE_NOT_SUPPORTED(12)"
+            13 -> "LANGUAGE_UNAVAILABLE(13)"
+            14 -> "CANNOT_CHECK_SUPPORT(14)"
+            else -> "UNKNOWN($error)"
+        }
     }
 }

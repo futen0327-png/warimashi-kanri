@@ -2,6 +2,7 @@ package jp.warimashi.voiceop
 
 import android.app.Application
 import android.speech.SpeechRecognizer
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import java.text.SimpleDateFormat
@@ -117,17 +118,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
         say("声が聞き取れませんでした。もう一度タップしてください", error = true)
     }
 
-    override fun onError(error: Int) {
+    override fun onError(error: Int, service: String) {
         stopPulse()
         _state.update { it.copy(phase = Phase.IDLE) }
+        Log.w(SpeechInput.TAG, "speech failed: ${SpeechInput.errorName(error)} via $service")
         val msg = when (error) {
             SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "マイクの使用が許可されていません"
             SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_SERVER ->
                 "音声認識に失敗しました。電波を確認してください"
             SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "音声認識が混み合っています。もう一度タップしてください"
+            12, 13 -> "日本語の音声認識が使えません。端末の音声入力の設定を確認してください"
             else -> "音声認識エラーです。もう一度タップしてください"
         }
-        say(msg, error = true)
+        // 画面には原因調査用にエラーの種類と認識サービスも出す（読み上げはしない）
+        say(msg, error = true, detail = "［${SpeechInput.errorName(error)} / $service］")
     }
 
     // 聞き取り中は一定間隔で合図し、ポケットの中でもマイクが開いているとわかるようにする
@@ -212,9 +216,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
         }
     }
 
-    private fun say(text: String, error: Boolean = false) {
+    private fun say(text: String, error: Boolean = false, detail: String = "") {
         if (error) cues.error()
-        _state.update { it.copy(lastSpeech = text, lastWasError = error) }
+        _state.update { it.copy(lastSpeech = text + detail, lastWasError = error) }
         speaker.speak(text)
     }
 
