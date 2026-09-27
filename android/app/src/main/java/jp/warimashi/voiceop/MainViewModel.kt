@@ -1,0 +1,215 @@
+package jp.warimashi.voiceop
+
+import android.app.Application
+import android.speech.SpeechRecognizer
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+import jp.warimashi.voiceop.core.EntryBuffer
+import jp.warimashi.voiceop.core.SurchargeRules
+import jp.warimashi.voiceop.core.VoiceInterpreter
+import jp.warimashi.voiceop.data.FirebaseRestClient
+import jp.warimashi.voiceop.data.GasClient
+import jp.warimashi.voiceop.voice.Cues
+import jp.warimashi.voiceop.voice.Speaker
+import jp.warimashi.voiceop.voice.SpeechInput
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+enum class Phase { IDLE, STARTING, LISTENING, SENDING }
+
+data class UiState(
+    val buffer: EntryBuffer = EntryBuffer(),
+    val phase: Phase = Phase.IDLE,
+    /** 直近の認識結果（第1候補）。 */
+    val lastHeard: String = "",
+    /** 直近の読み上げ内容。 */
+    val lastSpeech: String = "",
+    val lastWasError: Boolean = false,
+    /** 取得済みの登録顧客数（未取得なら null）。 */
+    val customerCount: Int? = null,
+    /** この端末から送信した件数（今回の起動中）。 */
+    val sentCount: Int = 0,
+    val lastSent: String = "",
+)
+
+/**
+ * タップ → 発話 → バッファ反映 → 読み上げ、「送信」で Firebase へ push、の流れを管理する。
+ */
+class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Listener {
+
+    private val _state = MutableStateFlow(UiState())
+    val state: StateFlow<UiState> = _state.asStateFlow()
+
+    private val speaker = Speaker(app)
+    private val cues = Cues(app)
+    private val speech = SpeechInput(app, this)
+    private val firebase = FirebaseRestClient(AppConfig.FIREBASE_DB_URL)
+    private val gas = GasClient(AppConfig.GAS_WEBHOOK_URL)
+
+    private var customers: List<String> = emptyList()
+
+    init {
+        refreshCustomers()
+    }
+
+    // ------------------------------------------------------------------
+    // マイクON/OFF（NFCタップ・画面のマイクボタン共通）
+    // ------------------------------------------------------------------
+
+    fun onTrigger() {
+        when (_state.value.phase) {
+            Phase.SENDING, Phase.STARTING -> Unit
+            Phase.LISTENING -> speech.stop()
+            Phase.IDLE -> startListening()
+        }
+    }
+
+    private fun startListening() {
+        if (!speech.isAvailable) {
+            say("音声認識が使えません。端末の設定を確認してください", error = true)
+            return
+        }
+        speaker.stop()
+        _state.update { it.copy(phase = Phase.STARTING) }
+        cues.listenStart()
+        viewModelScope.launch {
+            // ビープ音を認識に拾わせないよう少し待つ
+            delay(250)
+            if (_state.value.phase != Phase.STARTING) return@launch // 待っている間に画面が消えた
+            speech.start()
+            _state.update { it.copy(phase = Phase.LISTENING) }
+        }
+    }
+
+    /** 画面が消える・アプリが裏に回るときは聞き取りをやめる。 */
+    fun onPause() {
+        if (_state.value.phase == Phase.LISTENING || _state.value.phase == Phase.STARTING) {
+            speech.destroy()
+            _state.update { it.copy(phase = Phase.IDLE) }
+        }
+    }
+
+    override fun onListeningStarted() {
+        _state.update { it.copy(phase = Phase.LISTENING) }
+    }
+
+    override fun onListeningEnded() {
+        cues.listenEnd()
+    }
+
+    override fun onResults(candidates: List<String>) {
+        _state.update { it.copy(phase = Phase.IDLE, lastHeard = candidates.first()) }
+        interpret(candidates)
+    }
+
+    override fun onError(error: Int) {
+        _state.update { it.copy(phase = Phase.IDLE) }
+        val msg = when (error) {
+            SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> VoiceInterpreter.NOT_UNDERSTOOD
+            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "マイクの使用が許可されていません"
+            SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_SERVER ->
+                "音声認識に失敗しました。電波を確認してください"
+            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "音声認識が混み合っています。もう一度タップしてください"
+            SpeechRecognizer.ERROR_CLIENT -> return // stop() 直後などに出る。無視する
+            else -> "音声認識エラーです。もう一度タップしてください"
+        }
+        say(msg, error = true)
+    }
+
+    // ------------------------------------------------------------------
+    // 画面ボタン（送信・取消・確認）も音声コマンドと同じ経路で処理する
+    // ------------------------------------------------------------------
+
+    fun onCommand(word: String) {
+        if (_state.value.phase == Phase.SENDING) return
+        interpret(listOf(word))
+    }
+
+    private fun interpret(candidates: List<String>) {
+        val outcome = VoiceInterpreter.handle(_state.value.buffer, candidates, customers)
+        _state.update { it.copy(buffer = outcome.buffer) }
+        when (outcome.action) {
+            VoiceInterpreter.Action.SEND -> send(outcome.buffer)
+            VoiceInterpreter.Action.NONE -> say(outcome.speech, outcome.error)
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 送信
+    // ------------------------------------------------------------------
+
+    private fun send(buffer: EntryBuffer) {
+        val entry = buffer.toEntry(isoNow())
+        _state.update { it.copy(phase = Phase.SENDING) }
+        viewModelScope.launch {
+            val result = runCatching { firebase.push(AppConfig.ENTRIES_PATH, entry) }
+            if (result.isSuccess) {
+                // 送信完了後はバッファを自動クリアして次の1台に備える（設計書6章）
+                _state.update {
+                    it.copy(
+                        phase = Phase.IDLE,
+                        buffer = EntryBuffer(),
+                        sentCount = it.sentCount + 1,
+                        lastSent = summary(buffer),
+                    )
+                }
+                cues.sent()
+                say("送信しました")
+                launch { gas.record(entry) }
+                refreshCustomers()
+            } else {
+                _state.update { it.copy(phase = Phase.IDLE) }
+                val e = result.exceptionOrNull()
+                val msg = if (e is FirebaseRestClient.HttpException && (e.code == 401 || e.code == 403)) {
+                    "送信できませんでした。書き込みの権限がありません"
+                } else {
+                    "送信できませんでした。電波を確認して、もう一度、送信と言ってください"
+                }
+                say(msg, error = true)
+            }
+        }
+    }
+
+    fun refreshCustomers() {
+        viewModelScope.launch {
+            runCatching { firebase.fetchStringValues(AppConfig.CUSTOMERS_PATH) }
+                .onSuccess { list ->
+                    customers = list
+                    _state.update { it.copy(customerCount = list.size) }
+                }
+        }
+    }
+
+    private fun say(text: String, error: Boolean = false) {
+        if (error) cues.error()
+        _state.update { it.copy(lastSpeech = text, lastWasError = error) }
+        speaker.speak(text)
+    }
+
+    private fun summary(b: EntryBuffer): String = listOfNotNull(
+        b.plate ?: "----",
+        b.item,
+        b.size,
+        b.surcharge?.let { SurchargeRules.label(it) },
+        b.customer,
+    ).joinToString(" ")
+
+    private fun isoNow(): String =
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+            .apply { timeZone = TimeZone.getTimeZone("UTC") }
+            .format(Date())
+
+    override fun onCleared() {
+        speech.destroy()
+        speaker.shutdown()
+        cues.release()
+    }
+}
