@@ -19,4 +19,21 @@ object AppConfig {
 
     /** NFCタグを同じタップとみなす間隔（ミリ秒）。 */
     const val NFC_DEBOUNCE_MS = 1200L
+
+    // ---- 聞き取りの時間（ミリ秒）。実機で調整する ----
+
+    /** マイクON後、話し始めるまで待つ時間。過ぎても何も話されなければ「聞き取れませんでした」。 */
+    const val SPEECH_START_TIMEOUT_MS = 8000L
+
+    /** 話している途中の間（息継ぎ）がこれより長く続いたら、話し終わりとみなしてマイクOFF。 */
+    const val SPEECH_END_SILENCE_MS = 2500L
+
+    /** 1回のタップで聞き取る最大の長さ。 */
+    const val SPEECH_MAX_SESSION_MS = 30000L
+
+    /** 聞き取り中の合図の間隔。 */
+    const val LISTENING_PULSE_INTERVAL_MS = 1500L
+
+    /** 聞き取り中の合図に小さな「コッ」音も鳴らすか（既定はバイブのみ。音はマイクが拾って認識や無音判定に影響するおそれがある）。 */
+    const val LISTENING_PULSE_SOUND = false
 }

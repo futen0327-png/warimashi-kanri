@@ -16,7 +16,9 @@ import jp.warimashi.voiceop.data.GasClient
 import jp.warimashi.voiceop.voice.Cues
 import jp.warimashi.voiceop.voice.Speaker
 import jp.warimashi.voiceop.voice.SpeechInput
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -81,47 +83,69 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
         _state.update { it.copy(phase = Phase.STARTING) }
         cues.listenStart()
         viewModelScope.launch {
-            // ビープ音を認識に拾わせないよう少し待つ
+            // 開始音を認識に拾わせないよう少し待つ
             delay(250)
             if (_state.value.phase != Phase.STARTING) return@launch // 待っている間に画面が消えた
             speech.start()
-            _state.update { it.copy(phase = Phase.LISTENING) }
         }
     }
 
     /** 画面が消える・アプリが裏に回るときは聞き取りをやめる。 */
     fun onPause() {
         if (_state.value.phase == Phase.LISTENING || _state.value.phase == Phase.STARTING) {
-            speech.destroy()
+            speech.cancel()
+            stopPulse()
             _state.update { it.copy(phase = Phase.IDLE) }
         }
     }
 
-    override fun onListeningStarted() {
+    override fun onReady() {
         _state.update { it.copy(phase = Phase.LISTENING) }
+        startPulse()
     }
 
-    override fun onListeningEnded() {
+    override fun onFinished(candidates: List<String>) {
+        stopPulse()
         cues.listenEnd()
-    }
-
-    override fun onResults(candidates: List<String>) {
         _state.update { it.copy(phase = Phase.IDLE, lastHeard = candidates.first()) }
         interpret(candidates)
     }
 
+    override fun onNoSpeech() {
+        stopPulse()
+        _state.update { it.copy(phase = Phase.IDLE) }
+        say("声が聞き取れませんでした。もう一度タップしてください", error = true)
+    }
+
     override fun onError(error: Int) {
+        stopPulse()
         _state.update { it.copy(phase = Phase.IDLE) }
         val msg = when (error) {
-            SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> VoiceInterpreter.NOT_UNDERSTOOD
             SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "マイクの使用が許可されていません"
             SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_SERVER ->
                 "音声認識に失敗しました。電波を確認してください"
             SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "音声認識が混み合っています。もう一度タップしてください"
-            SpeechRecognizer.ERROR_CLIENT -> return // stop() 直後などに出る。無視する
             else -> "音声認識エラーです。もう一度タップしてください"
         }
         say(msg, error = true)
+    }
+
+    // 聞き取り中は一定間隔で合図し、ポケットの中でもマイクが開いているとわかるようにする
+    private var pulseJob: Job? = null
+
+    private fun startPulse() {
+        pulseJob?.cancel()
+        pulseJob = viewModelScope.launch {
+            while (isActive) {
+                delay(AppConfig.LISTENING_PULSE_INTERVAL_MS)
+                cues.listening(AppConfig.LISTENING_PULSE_SOUND)
+            }
+        }
+    }
+
+    private fun stopPulse() {
+        pulseJob?.cancel()
+        pulseJob = null
     }
 
     // ------------------------------------------------------------------
@@ -208,6 +232,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
             .format(Date())
 
     override fun onCleared() {
+        stopPulse()
         speech.destroy()
         speaker.shutdown()
         cues.release()
