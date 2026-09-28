@@ -11,6 +11,7 @@ import java.util.Locale
 import java.util.TimeZone
 import jp.warimashi.voiceop.core.EntryBuffer
 import jp.warimashi.voiceop.core.SurchargeRules
+import jp.warimashi.voiceop.core.UtteranceParser
 import jp.warimashi.voiceop.core.VoiceInterpreter
 import jp.warimashi.voiceop.data.FirebaseRestClient
 import jp.warimashi.voiceop.data.GasClient
@@ -255,6 +256,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
     private fun interpret(candidates: List<String>) {
         trace("heard: $candidates")
         val outcome = VoiceInterpreter.handle(_state.value.buffer, candidates, customers)
+        if (outcome.speech == VoiceInterpreter.NOT_UNDERSTOOD) {
+            // どの候補も解釈できなかった: 候補ごとに、どこまで解釈できて何が残ったかを残す
+            candidates.forEachIndexed { i, c ->
+                val msg = "rejected #${i + 1}: ${UtteranceParser.explain(c)}"
+                Log.i(SpeechInput.TAG, msg)
+                trace(msg)
+            }
+        }
         _state.update { it.copy(buffer = outcome.buffer) }
         when (outcome.action) {
             VoiceInterpreter.Action.SEND -> send(outcome.buffer)

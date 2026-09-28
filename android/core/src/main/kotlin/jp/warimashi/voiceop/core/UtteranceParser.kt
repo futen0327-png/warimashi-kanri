@@ -195,6 +195,65 @@ object UtteranceParser {
     }
 
     // ------------------------------------------------------------------
+    // 診断（解釈できなかった理由をログに出す。解釈の結果には影響しない）
+    // ------------------------------------------------------------------
+
+    /**
+     * 解釈できなかった発話について、正規化後の文字列・先頭から解釈できた部分・残った文字を返す。
+     * 例: `norm=240明日から4t2期 方式=位置 解釈できた=[ナンバー:240] 残り=「明日から4t2期」`
+     */
+    fun explain(raw: String): String {
+        val nt = NormalizedText.of(raw)
+        val t = nt.text
+        if (t.isEmpty()) return "norm=（空） 正規化後に文字が残らない"
+        if (parseCommand(t) != null) return "norm=$t 方式=コマンド"
+
+        val labelStart = fillerSkips(t, 0).firstOrNull { Vocabulary.fieldLabels.matchAt(t, it) != null }
+        val (method, best) = if (labelStart != null) "項目名" to explainLabeled(nt, labelStart)
+        else "位置" to explainPositional(t)
+        val (pos, acc) = best
+        val done = acc.joinToString(" ") { "${it.field.label}:${describe(it.value)}" }
+        return "norm=$t 方式=$method 解釈できた=[$done] 残り=「${t.substring(minOf(pos, t.length))}」"
+    }
+
+    /** 位置ベースで、先頭から最も遠くまで解釈できた（位置, 解釈した項目）。 */
+    private fun explainPositional(t: String): Pair<Int, List<FieldUpdate>> {
+        var best: Pair<Int, List<FieldUpdate>> = 0 to emptyList()
+        fun search(pos: Int, slot: Int, acc: List<FieldUpdate>) {
+            if (pos > best.first || (pos == best.first && acc.size > best.second.size)) best = pos to acc
+            if (slot == positionalSlots.size) return
+            val field = positionalSlots[slot]
+            for (p in fillerSkips(t, pos)) {
+                for ((value, end) in slotCandidates(field, t, p)) search(end, slot + 1, acc + FieldUpdate(field, value))
+            }
+            search(pos, slot + 1, acc)
+        }
+        search(0, 0, emptyList())
+        return best
+    }
+
+    /** 項目名+値で、先頭から解釈できたところまで（位置, 解釈した項目）。 */
+    private fun explainLabeled(nt: NormalizedText, start: Int): Pair<Int, List<FieldUpdate>> {
+        val t = nt.text
+        val acc = ArrayList<FieldUpdate>()
+        var pos = start
+        while (pos < t.length) {
+            val labelPos = fillerSkips(t, pos).firstOrNull { Vocabulary.fieldLabels.matchAt(t, it) != null } ?: break
+            val (field, len) = Vocabulary.fieldLabels.matchAt(t, labelPos)!!
+            val (value, end) = labeledValue(field, nt, labelPos + len) ?: return labelPos to acc
+            acc += FieldUpdate(field, value)
+            pos = end
+        }
+        return pos to acc
+    }
+
+    private fun describe(v: FieldValue): String = when (v) {
+        FieldValue.Clear -> "パス"
+        is FieldValue.Single -> v.value
+        is FieldValue.Multi -> v.values.joinToString("/")
+    }
+
+    // ------------------------------------------------------------------
     // つなぎ言葉
     // ------------------------------------------------------------------
 

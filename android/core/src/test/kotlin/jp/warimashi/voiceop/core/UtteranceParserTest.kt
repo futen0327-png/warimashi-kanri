@@ -174,4 +174,17 @@ class UtteranceParserTest {
         assertEquals("10とん", NormalizedText.normalize("十トン"))
         assertEquals("2次製品", NormalizedText.normalize("二次製品"))
     }
+
+    @Test
+    fun explain_showsParsedPrefixAndRemainder() {
+        // 2026-09-28 の実機ログで棄却された候補
+        assertEquals(
+            "norm=240明日から4t2期 方式=位置 解釈できた=[ナンバー:240] 残り=「明日から4t2期」",
+            UtteranceParser.explain("240 明日から4 T 2期"),
+        )
+        assertEquals(
+            "norm=240あすがら4t2期 方式=位置 解釈できた=[ナンバー:240 品目:アスガラ サイズ:4t] 残り=「2期」",
+            UtteranceParser.explain("240 アスガラ 4 T 2期"),
+        )
+    }
 }
