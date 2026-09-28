@@ -68,6 +68,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
     /** 認識サービスが使えなかった端末では、以降は標準の音声入力画面を使う。 */
     private var useSystemDialog = false
     private var systemDialogOpen = false
+    /** 標準の音声入力画面に切り替えた原因（診断ログ用）。 */
+    private var systemDialogCause = ""
     private val firebase = FirebaseRestClient(AppConfig.FIREBASE_DB_URL)
     private val gas = GasClient(AppConfig.GAS_WEBHOOK_URL)
 
@@ -123,6 +125,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
     private fun startListening() {
         speaker.stop()
         if (useSystemDialog || !speech.isAvailable) {
+            if (!useSystemDialog) systemDialogCause = "recognition service not available"
+            trace("using system voice input dialog (cause: $systemDialogCause)")
             // 標準の音声入力画面は自分で開始音を鳴らすので、こちらの音は重ねない
             cues.listenStartVibrationOnly()
             openSystemDialog()
@@ -173,7 +177,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
         trace("speech failed: ${SpeechInput.errorName(error)} via $service")
         if (error != SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
             // どの認識サービスも使えなかった。Android 標準の音声入力画面で聞き直す
-            trace("fallback: system voice input dialog")
+            systemDialogCause = "${SpeechInput.errorName(error)} via $service"
+            Log.w(SpeechInput.TAG, "fallback: system voice input dialog (cause: $systemDialogCause)")
+            trace("fallback: system voice input dialog (cause: $systemDialogCause)")
             useSystemDialog = true
             openSystemDialog()
             return
