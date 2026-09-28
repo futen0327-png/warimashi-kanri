@@ -307,8 +307,12 @@ class SpeechInput(
                         else -> finish()
                     }
                 }
-                SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_CLIENT ->
-                    if (retries++ < 3) main.postDelayed(retryListen, 300) else handleFailure(error)
+                // SERVER_DISCONNECTED も一時的なことが多いので、作り直して聞き直す
+                SpeechRecognizer.ERROR_RECOGNIZER_BUSY, SpeechRecognizer.ERROR_CLIENT, ERROR_SERVER_DISCONNECTED ->
+                    if (retries++ < MAX_RETRIES) {
+                        log("retry $retries/$MAX_RETRIES after ${errorName(error)} in ${RETRY_DELAY_MS}ms")
+                        main.postDelayed(retryListen, RETRY_DELAY_MS)
+                    } else handleFailure(error)
                 else -> handleFailure(error)
             }
         }
@@ -380,6 +384,12 @@ class SpeechInput(
 
         /** エラーのあと聞き直すまでの待ち時間（ミリ秒）。 */
         const val RETRY_DELAY_MS = 300L
+
+        /** BUSY / CLIENT / SERVER_DISCONNECTED のとき、同じサービスで聞き直す最大回数。 */
+        const val MAX_RETRIES = 3
+
+        /** SpeechRecognizer.ERROR_SERVER_DISCONNECTED（API 31 で追加された定数）。 */
+        private const val ERROR_SERVER_DISCONNECTED = 11
 
         /** Google の音声認識（「音声認識と合成」アプリ）。実機で正しく聞き取れたもの。 */
         const val GOOGLE_TTS_PACKAGE = "com.google.android.tts"
