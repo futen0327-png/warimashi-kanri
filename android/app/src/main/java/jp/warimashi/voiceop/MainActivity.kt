@@ -35,7 +35,9 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
 
     private val vm: MainViewModel by viewModels()
     private var nfcAdapter: NfcAdapter? = null
-    private var lastTapAt = 0L
+    @Volatile private var lastTapAt = 0L
+    /** 受け取ったNFCタップの通し番号（ログで何回目かを数えるため）。 */
+    @Volatile private var tapSeq = 0
 
     private var nfcStatus by mutableStateOf(NfcStatus.UNSUPPORTED)
     private var micGranted by mutableStateOf(false)
@@ -126,11 +128,14 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
     /** NFCタグ検出（バインダースレッドで呼ばれる）。 */
     override fun onTagDiscovered(tag: Tag?) {
         val now = SystemClock.elapsedRealtime()
-        if (now - lastTapAt < AppConfig.NFC_DEBOUNCE_MS) return
-        lastTapAt = now
-        runOnUiThread {
-            if (micGranted) vm.onTrigger()
+        val seq = ++tapSeq
+        val sinceLast = now - lastTapAt
+        if (sinceLast < AppConfig.NFC_DEBOUNCE_MS) {
+            runOnUiThread { vm.logNfc(seq, "無視", "前回受理から${sinceLast}ms（${AppConfig.NFC_DEBOUNCE_MS}ms以内）") }
+            return
         }
+        lastTapAt = now
+        runOnUiThread { vm.onNfcTap(seq, micGranted) }
     }
 
     private fun applyPocketMode(on: Boolean) {

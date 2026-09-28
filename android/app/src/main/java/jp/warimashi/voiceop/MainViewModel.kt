@@ -89,6 +89,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
         }
     }
 
+    /** NFCタップ（MainActivity で連続タップの判定を通ったもの）。 */
+    fun onNfcTap(seq: Int, micGranted: Boolean) {
+        if (!micGranted) {
+            logNfc(seq, "無視", "マイクの使用が許可されていない")
+            return
+        }
+        logNfc(seq, "受理", "phase=${_state.value.phase}")
+        onTrigger()
+    }
+
+    /** NFC受信のログ（Logcat と画面の診断ログの両方に出す）。 */
+    fun logNfc(seq: Int, verdict: String, reason: String) {
+        val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.JAPAN).format(Date())
+        val msg = "NFC #$seq $time $verdict: $reason"
+        Log.i(NFC_TAG, msg)
+        trace(msg)
+    }
+
     private fun startListening() {
         speaker.stop()
         if (useSystemDialog || !speech.isAvailable) {
@@ -289,6 +307,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
         SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
             .apply { timeZone = TimeZone.getTimeZone("UTC") }
             .format(Date())
+
+    companion object {
+        /** NFC受信ログのタグ（adb logcat -s VoiceOpNfc で絞り込める）。 */
+        const val NFC_TAG = "VoiceOpNfc"
+    }
 
     override fun onCleared() {
         stopPulse()
