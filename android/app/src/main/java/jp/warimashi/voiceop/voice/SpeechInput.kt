@@ -294,14 +294,15 @@ class SpeechInput(
             when (error) {
                 SpeechRecognizer.ERROR_NO_MATCH, SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
                     // 認識エンジンが早々に諦めただけ。こちらの待ち時間内なら聞き直す
+                    // （すぐ作り直すと SERVER_DISCONNECTED になる端末があるので少し待つ）
                     when {
-                        segments.isNotEmpty() -> if (endPending) listen() else finish()
-                        startPending -> listen()
+                        segments.isNotEmpty() -> if (endPending) relisten() else finish()
+                        startPending -> relisten()
                         speechStarted -> {
                             // 物音などで話し始めと判定されたが言葉にならなかった。少し待ち直す
                             speechStarted = false
                             postStartTimeout(AppConfig.SPEECH_END_SILENCE_MS)
-                            listen()
+                            relisten()
                         }
                         else -> finish()
                     }
@@ -317,6 +318,14 @@ class SpeechInput(
         override fun onBufferReceived(buffer: ByteArray?) = Unit
         override fun onPartialResults(partialResults: Bundle?) = Unit
         override fun onEvent(eventType: Int, params: Bundle?) = Unit
+    }
+
+    /** 今の認識エンジンを破棄し、少し待ってから聞き直す。 */
+    private fun relisten() {
+        recognizer?.destroy()
+        recognizer = null
+        log("relisten in ${RETRY_DELAY_MS}ms")
+        main.postDelayed(retryListen, RETRY_DELAY_MS)
     }
 
     /** 聞き直しても直らないエラー。 */
@@ -368,6 +377,9 @@ class SpeechInput(
 
     companion object {
         const val TAG = "VoiceOp"
+
+        /** エラーのあと聞き直すまでの待ち時間（ミリ秒）。 */
+        const val RETRY_DELAY_MS = 300L
 
         /** Google の音声認識（「音声認識と合成」アプリ）。実機で正しく聞き取れたもの。 */
         const val GOOGLE_TTS_PACKAGE = "com.google.android.tts"
