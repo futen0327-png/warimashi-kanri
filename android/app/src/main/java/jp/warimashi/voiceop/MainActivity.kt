@@ -38,6 +38,8 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
     @Volatile private var lastTapAt = 0L
     /** 受け取ったNFCタップの通し番号（ログで何回目かを数えるため）。 */
     @Volatile private var tapSeq = 0
+    /** 最後に画面が前面に戻った時刻（elapsedRealtime）。 */
+    @Volatile private var resumedAt = 0L
 
     private var nfcStatus by mutableStateOf(NfcStatus.UNSUPPORTED)
     private var micGranted by mutableStateOf(false)
@@ -107,6 +109,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
             !adapter.isEnabled -> NfcStatus.DISABLED
             else -> NfcStatus.READY
         }
+        resumedAt = SystemClock.elapsedRealtime()
         // Foreground Dispatch の代わりにリーダーモードを使う:
         // タグの種類を問わず受け取れ、「未対応のタグです」等のシステム表示や音が出ない
         adapter?.takeIf { it.isEnabled }?.enableReaderMode(
@@ -130,6 +133,11 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         val now = SystemClock.elapsedRealtime()
         val seq = ++tapSeq
         val sinceLast = now - lastTapAt
+        val sinceResume = now - resumedAt
+        if (sinceResume < AppConfig.NFC_IGNORE_AFTER_RESUME_MS) {
+            runOnUiThread { vm.logNfc(seq, "無視", "画面復帰から${sinceResume}ms（${AppConfig.NFC_IGNORE_AFTER_RESUME_MS}ms以内）") }
+            return
+        }
         if (sinceLast < AppConfig.NFC_DEBOUNCE_MS) {
             runOnUiThread { vm.logNfc(seq, "無視", "前回受理から${sinceLast}ms（${AppConfig.NFC_DEBOUNCE_MS}ms以内）") }
             return
