@@ -13,7 +13,7 @@ import android.os.VibratorManager
  *
  * | 状態 | 音 | バイブ |
  * |---|---|---|
- * | マイクON | ポン（1回） | 短く1回 |
+ * | マイクON | ポン（1回）。標準の音声入力画面を使うときは画面側の音のみ | 短く1回 |
  * | 聞き取り中 | （設定で小さなコッ） | 一定間隔でごく短く |
  * | マイクOFF（聞き取り終了） | ピピッ（2回） | 短く2回 |
  * | 送信完了 | 確認音 | 長め1回 |
@@ -37,6 +37,11 @@ class Cues(context: Context) {
     /** マイクON（話してよい合図）。 */
     fun listenStart() {
         tone?.startTone(ToneGenerator.TONE_PROP_BEEP, 150)
+        vibrate(longArrayOf(0, 120))
+    }
+
+    /** マイクON（標準の音声入力画面を使うとき）。画面側が開始音を鳴らすので、バイブだけにする。 */
+    fun listenStartVibrationOnly() {
         vibrate(longArrayOf(0, 120))
     }
 

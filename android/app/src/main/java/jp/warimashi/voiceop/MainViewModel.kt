@@ -123,7 +123,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
     private fun startListening() {
         speaker.stop()
         if (useSystemDialog || !speech.isAvailable) {
-            cues.listenStart()
+            // 標準の音声入力画面は自分で開始音を鳴らすので、こちらの音は重ねない
+            cues.listenStartVibrationOnly()
             openSystemDialog()
             return
         }
