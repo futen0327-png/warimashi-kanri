@@ -146,6 +146,12 @@ class SpeechInput(
         (list + onDevice).also { all -> log("recognition services: ${all.joinToString { it.name }}") }
     }
 
+    /** 起動時に1回、端末で使える認識サービスの一覧（使う順）をログに出す。 */
+    fun logServices() {
+        services // 一覧は初回参照時に作られ、そのときにログに出る
+        log("recognition available: $isAvailable")
+    }
+
     /** 今使っている認識サービスの番号（うまく動いたものを次回以降も使う）。 */
     private var serviceIndex = 0
 

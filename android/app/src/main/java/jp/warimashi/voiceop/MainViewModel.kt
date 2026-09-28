@@ -77,6 +77,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
     private var customers: List<String> = emptyList()
 
     init {
+        speech.logServices()
         refreshCustomers()
     }
 
