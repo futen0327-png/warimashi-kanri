@@ -66,8 +66,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
     private val _launchSystemDialog = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val launchSystemDialog: SharedFlow<Unit> = _launchSystemDialog
 
-    /** 認識サービスが使えなかった端末では、以降は標準の音声入力画面を使う。 */
-    private var useSystemDialog = false
+    /**
+     * SpeechRecognizer が（再試行しても）失敗して標準の音声入力画面に切り替えた回数（連続）。
+     * 切り替えは そのタップだけで、次のタップではまた SpeechRecognizer を試す。聞き取りが始まれば 0 に戻す。
+     */
+    private var consecutiveSpeechFailures = 0
     private var systemDialogOpen = false
     /** 標準の音声入力画面に切り替えた原因（診断ログ用）。 */
     private var systemDialogCause = ""
@@ -126,15 +129,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
 
     private fun startListening() {
         speaker.stop()
-        if (useSystemDialog || !speech.isAvailable) {
-            if (!useSystemDialog) systemDialogCause = "recognition service not available"
+        if (!speech.isAvailable) {
+            systemDialogCause = "recognition service not available"
             trace("using system voice input dialog (cause: $systemDialogCause)")
             // 標準の音声入力画面は自分で開始音を鳴らすので、こちらの音は重ねない
             cues.listenStartVibrationOnly()
             openSystemDialog()
             return
         }
-        _state.update { it.copy(phase = Phase.STARTING) }
+        if (consecutiveSpeechFailures > 0) {
+            trace("trying SpeechRecognizer again (consecutive failures: $consecutiveSpeechFailures)")
+        }
+        _state.update { it.copy(phase = Phase.STARTING, usingSystemDialog = false) }
         cues.listenStart()
         viewModelScope.launch {
             // 開始音を認識に拾わせないよう少し待つ
@@ -155,6 +161,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
     }
 
     override fun onReady() {
+        consecutiveSpeechFailures = 0
         _state.update { it.copy(phase = Phase.LISTENING) }
         startPulse()
     }
@@ -178,11 +185,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
         Log.w(SpeechInput.TAG, "speech failed: ${SpeechInput.errorName(error)} via $service")
         trace("speech failed: ${SpeechInput.errorName(error)} via $service")
         if (error != SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
-            // どの認識サービスも使えなかった。Android 標準の音声入力画面で聞き直す
+            // 再試行しても認識サービスが使えなかった。このタップは Android 標準の音声入力画面で聞き直す
+            consecutiveSpeechFailures++
             systemDialogCause = "${SpeechInput.errorName(error)} via $service"
-            Log.w(SpeechInput.TAG, "fallback: system voice input dialog (cause: $systemDialogCause)")
-            trace("fallback: system voice input dialog (cause: $systemDialogCause)")
-            useSystemDialog = true
+            val msg = "fallback: system voice input dialog for this tap " +
+                "(cause: $systemDialogCause, consecutive failures: $consecutiveSpeechFailures)"
+            Log.w(SpeechInput.TAG, msg)
+            trace(msg)
             openSystemDialog()
             return
         }
