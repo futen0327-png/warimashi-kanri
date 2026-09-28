@@ -95,8 +95,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
             logNfc(seq, "無視", "マイクの使用が許可されていない")
             return
         }
+        // 聞き取り中・標準の音声入力画面の表示中・起動中・送信中のタップはすべて無視する
+        // （聞き取りの終了は画面のマイクボタンか、無音での自動終了で行う）
+        val busy = when {
+            systemDialogOpen -> "標準の音声入力画面を表示中"
+            _state.value.phase == Phase.LISTENING -> "聞き取り中"
+            _state.value.phase == Phase.STARTING -> "聞き取り開始処理中"
+            _state.value.phase == Phase.SENDING -> "送信中"
+            else -> null
+        }
+        if (busy != null) {
+            logNfc(seq, "無視", busy)
+            return
+        }
         logNfc(seq, "受理", "phase=${_state.value.phase}")
-        onTrigger()
+        startListening()
     }
 
     /** NFC受信のログ（Logcat と画面の診断ログの両方に出す）。 */
