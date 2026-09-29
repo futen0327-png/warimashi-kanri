@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  debug ビルドだけにマージされる。Bluetooth リモコンなどのキー入力を調べる診断ツール。
+  release ビルドには一切入らない（本番の MainActivity・音声認識・送信処理は無関係）。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 画面OFF診断用のフォアグラウンドサービス（MediaSession）と、その通知 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application>
+        <!--
+          adb からも開ける:
+          adb shell am start -n jp.warimashi.voiceop/.diag.KeyDiagnosticActivity
+          debug ビルドではホーム画面に「キー診断」アイコンも出る（本番アイコンとは別タスク）。
+        -->
+        <activity
+            android:name=".diag.KeyDiagnosticActivity"
+            android:exported="true"
+            android:label="キー診断"
+            android:taskAffinity="jp.warimashi.voiceop.diag"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|keyboard|keyboardHidden|navigation">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".diag.KeyDiagnosticService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+    </application>
+</manifest>
