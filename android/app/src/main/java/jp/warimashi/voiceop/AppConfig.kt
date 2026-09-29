@@ -26,6 +26,17 @@ object AppConfig {
      */
     const val NFC_IGNORE_AFTER_RESUME_MS = 2500L
 
+    // ---- Bluetooth リモコン（マイクON/OFF） ----
+
+    /**
+     * マイクON/OFFに使う Bluetooth リモコンのデバイス名（この文字列を含むものが対象。大文字小文字は区別しない）。
+     * 端末本体の音量ボタン（gpio-keys）は対象外で、従来どおり音量が変わる。
+     */
+    const val REMOTE_DEVICE_NAME = "BTselfie"
+
+    /** リモコンの押下を同じ1回とみなす間隔（ミリ秒）。前回の切り替えからこれ未満の押下は無視する。 */
+    const val REMOTE_DEBOUNCE_MS = 400L
+
     // ---- 聞き取りの時間（ミリ秒）。実機で調整する ----
 
     /** マイクON後、話し始めるまで待つ時間。過ぎても何も話されなければ「聞き取れませんでした」。 */

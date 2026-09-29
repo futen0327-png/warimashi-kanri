@@ -119,6 +119,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
         startListening()
     }
 
+    /**
+     * Bluetooth リモコンのボタン（MainActivity で合図と判定されたもの）。
+     * 画面のマイクボタンと同じく、待機中なら聞き取り開始、聞き取り中ならそこまでの内容で確定する。
+     */
+    fun onRemoteToggle(micGranted: Boolean) {
+        trace("remote button: phase=${_state.value.phase}" + if (micGranted) "" else " (ignored: no mic permission)")
+        if (micGranted) onTrigger()
+    }
+
     /** NFC受信のログ（Logcat と画面の診断ログの両方に出す）。 */
     fun logNfc(seq: Int, verdict: String, reason: String) {
         val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.JAPAN).format(Date())

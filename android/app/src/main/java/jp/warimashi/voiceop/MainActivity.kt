@@ -3,6 +3,7 @@ package jp.warimashi.voiceop
 import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.Context
 import android.content.pm.PackageManager
 import android.nfc.NfcAdapter
 import android.nfc.Tag
@@ -10,6 +11,7 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.provider.Settings
 import android.speech.RecognizerIntent
+import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -22,6 +24,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
+import jp.warimashi.voiceop.core.RemoteButtonFilter
 import jp.warimashi.voiceop.ui.MainScreen
 import jp.warimashi.voiceop.ui.NfcStatus
 
@@ -44,6 +47,11 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
     private var nfcStatus by mutableStateOf(NfcStatus.UNSUPPORTED)
     private var micGranted by mutableStateOf(false)
     private var pocketMode by mutableStateOf(false)
+
+    /** Bluetooth リモコンのボタンでマイクON/OFFするか（設定。既定ON）。 */
+    private var remoteEnabled by mutableStateOf(true)
+    private val remoteFilter = RemoteButtonFilter(AppConfig.REMOTE_DEVICE_NAME, AppConfig.REMOTE_DEBOUNCE_MS)
+    private val prefs by lazy { getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
 
     private val micPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
         micGranted = it
@@ -75,6 +83,7 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         setShowWhenLocked(true)
+        remoteEnabled = prefs.getBoolean(PREF_REMOTE_ENABLED, true)
 
         nfcAdapter = NfcAdapter.getDefaultAdapter(this)
         micGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
@@ -97,6 +106,8 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
                 onPocketMode = ::applyPocketMode,
                 onOpenNfcSettings = { startActivity(Intent(Settings.ACTION_NFC_SETTINGS)) },
                 onRefreshCustomers = vm::refreshCustomers,
+                remoteEnabled = remoteEnabled,
+                onRemoteEnabled = ::applyRemoteEnabled,
             )
         }
     }
@@ -146,10 +157,44 @@ class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
         runOnUiThread { vm.onNfcTap(seq, micGranted) }
     }
 
+    /**
+     * Bluetooth リモコン（BTselfie）のボタンでマイクON/OFFを切り替える。
+     * 判定は [RemoteButtonFilter]: リモコンのキーはすべて消費してシステム音量を変えず、
+     * 本体の音量ボタンなど他のキーはいつもどおり処理する。
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val decision = remoteFilter.decide(
+            enabled = remoteEnabled,
+            keyCode = event.keyCode,
+            action = event.action,
+            repeatCount = event.repeatCount,
+            deviceName = event.device?.name,
+            now = SystemClock.elapsedRealtime(),
+        )
+        return when (decision) {
+            RemoteButtonFilter.Decision.PASS -> super.dispatchKeyEvent(event)
+            RemoteButtonFilter.Decision.CONSUME -> true
+            RemoteButtonFilter.Decision.TOGGLE -> {
+                vm.onRemoteToggle(micGranted)
+                true
+            }
+        }
+    }
+
+    private fun applyRemoteEnabled(on: Boolean) {
+        remoteEnabled = on
+        prefs.edit().putBoolean(PREF_REMOTE_ENABLED, on).apply()
+    }
+
     private fun applyPocketMode(on: Boolean) {
         pocketMode = on
         window.attributes = window.attributes.apply {
             screenBrightness = if (on) 0.01f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
         }
+    }
+
+    companion object {
+        private const val PREFS_NAME = "settings"
+        private const val PREF_REMOTE_ENABLED = "remote_button_enabled"
     }
 }

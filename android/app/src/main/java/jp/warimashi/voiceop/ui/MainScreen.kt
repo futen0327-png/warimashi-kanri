@@ -21,6 +21,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -60,6 +62,8 @@ fun MainScreen(
     onPocketMode: (Boolean) -> Unit,
     onOpenNfcSettings: () -> Unit,
     onRefreshCustomers: () -> Unit,
+    remoteEnabled: Boolean,
+    onRemoteEnabled: (Boolean) -> Unit,
 ) {
     MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Bg, surface = Panel)) {
         Box(Modifier.fillMaxSize().background(Bg).safeDrawingPadding()) {
@@ -111,6 +115,7 @@ fun MainScreen(
                     )
                 }
                 HelpCard()
+                RemoteSetting(remoteEnabled, onRemoteEnabled)
                 DiagCard(state)
             }
 
@@ -245,6 +250,29 @@ private fun HelpCard() {
             "「送信」で送る ／「取消」で全部消す ／「確認」で読み上げ",
         )
         lines.forEach { Text(it, color = Text2, fontSize = 13.sp) }
+    }
+}
+
+/** 設定: Bluetooth リモコンのボタンでマイクON/OFFするか。 */
+@Composable
+private fun RemoteSetting(enabled: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().border(1.dp, Border, RoundedCornerShape(10.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text("Bluetoothリモコンでマイク ON/OFF", color = Text1, fontSize = 14.sp)
+            Text(
+                if (enabled) "リモコンのボタン: 待機中→聞き取り開始／聞き取り中→確定" else "オフ（リモコンのキーは通常どおり音量操作になる）",
+                color = Text2, fontSize = 12.sp,
+            )
+        }
+        Switch(
+            checked = enabled,
+            onCheckedChange = onChange,
+            colors = SwitchDefaults.colors(checkedTrackColor = Accent, checkedThumbColor = Color.Black),
+        )
     }
 }
 
