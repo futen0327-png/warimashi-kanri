@@ -18,6 +18,12 @@ data class FieldUpdate(val field: Field, val value: FieldValue)
 sealed interface Utterance {
     data class Command(val command: Vocabulary.Command) : Utterance
 
+    /**
+     * 「コピー」: 当日の登録から条件に合う最新の1件を入力欄に写す。
+     * 条件はどちらも任意（両方 null なら直前の登録）。customer は発話の表記のまま。
+     */
+    data class Copy(val customer: String?, val plate: String?) : Utterance
+
     /** 位置ベース（5-1）または項目名+値（5-2）で解釈した項目の更新。 */
     data class Updates(val updates: List<FieldUpdate>, val labeled: Boolean) : Utterance
 }
@@ -26,6 +32,7 @@ sealed interface Utterance {
  * 発話の解釈（設計書5章）。
  *
  * - 全体が「送信」「取消」ならコマンド
+ * - 「コピー」を含むなら、前後を客先名・ナンバー（順不同・どちらも任意）としてコピー
  * - 全体が割増理由の語だけ（「大きさ 鉄筋」）なら、「理由」を付けなくても理由
  * - 先頭が項目名（ナンバー/品目/サイズ/割増/理由/客先/拒否）なら「項目名+値」方式
  * - それ以外は「ナンバー → 品目 → サイズ → 割増」の位置ベース方式。
@@ -45,6 +52,7 @@ object UtteranceParser {
         if (t.isEmpty()) return null
 
         parseCommand(t)?.let { return it }
+        parseCopy(nt)?.let { return it }
         parseReasonsOnly(t)?.let { return it }
 
         val labelStart = fillerSkips(t, 0).firstOrNull { Vocabulary.fieldLabels.matchAt(t, it) != null }
@@ -61,6 +69,96 @@ object UtteranceParser {
             if (reachesEnd(t, start + len)) return Utterance.Command(cmd)
         }
         return null
+    }
+
+    // ------------------------------------------------------------------
+    // コピー（「コピー 中川組 1234」「1234 中川組 コピー」「中川組のコピー」）
+    // ------------------------------------------------------------------
+
+    /** 名前の前に付きがちな言葉（読み飛ばす）。名前の一部を削らないよう、つなぎ言葉より絞ってある。 */
+    private val copyLeading = TermSet(listOf("えーと", "えっと", "えー", "あの").map { it to Unit })
+
+    /** 名前の後ろに付きがちな助詞など（「中川組のコピー」「中川組をコピーして」）。 */
+    private val copyTrailing = TermSet(listOf("の", "を", "は", "で", "です", "して", "します").map { it to Unit })
+
+    /** 項目名のあとの助詞（「客先は中川組」）。 */
+    private val afterLabel = TermSet(listOf("は", "の").map { it to Unit })
+
+    private fun parseCopy(nt: NormalizedText): Utterance? {
+        val t = nt.text
+        val at = t.indices.firstOrNull { Vocabulary.copy.matchAt(t, it) != null } ?: return null
+        val len = Vocabulary.copy.matchAt(t, at)!!.second
+        // 「コピー」の前後それぞれから客先名・ナンバーを取り出す（順不同）
+        val before = copyArgs(nt, 0, at) ?: return null
+        val after = copyArgs(nt, at + len, t.length) ?: return null
+        if ((before.customer != null && after.customer != null) || (before.plate != null && after.plate != null)) return null
+        return Utterance.Copy(before.customer ?: after.customer, before.plate ?: after.plate)
+    }
+
+    /**
+     * コピーの条件。[from, to) の先頭か末尾にある1〜4桁の数字をナンバー、残りを客先名とする。
+     * 名前の途中の数字（「第一建設」）はナンバーにしない。解釈できなければ null。
+     */
+    private fun copyArgs(nt: NormalizedText, from: Int, to: Int): Utterance.Copy? {
+        val t = nt.text
+        var s = from
+        var e = to
+        var plate: String? = null
+
+        fun isLabel(field: Field?) = field == Field.NUMBER || field == Field.CUSTOMER
+
+        // 先頭から: つなぎ言葉・項目名・ナンバー
+        while (s < e) {
+            val lead = copyLeading.matchAt(t, s)
+            if (lead != null && s + lead.second <= e) {
+                s += lead.second
+                continue
+            }
+            val label = Vocabulary.fieldLabels.matchAt(t, s)
+            if (label != null && isLabel(label.first) && s + label.second <= e) {
+                s += label.second
+                val particle = afterLabel.matchAt(t, s)
+                if (particle != null && s + particle.second < e) s += particle.second
+                continue
+            }
+            var d = s
+            while (d < e && t[d].isDigit()) d++
+            if (d > s) {
+                if (plate != null || d - s > 4) return null
+                plate = t.substring(s, d)
+                s = if (d < e && t[d] == '番') d + 1 else d
+                continue
+            }
+            break
+        }
+        // 末尾から: 助詞・「番」・ナンバー・項目名
+        while (e > s) {
+            val trail = copyTrailing.matchEndingAt(t, e)
+            if (trail != null && e - trail.second >= s) {
+                e -= trail.second
+                continue
+            }
+            if (t[e - 1] == '番' && e - 1 > s && t[e - 2].isDigit()) {
+                e--
+                continue
+            }
+            var d = e
+            while (d > s && t[d - 1].isDigit()) d--
+            if (d < e) {
+                if (plate != null || e - d > 4) return null
+                plate = t.substring(d, e)
+                e = d
+                continue
+            }
+            val label = Vocabulary.fieldLabels.matchEndingAt(t, e)
+            if (label != null && isLabel(label.first) && e - label.second >= s) {
+                e -= label.second
+                continue
+            }
+            break
+        }
+        val customer = nt.rawSlice(s, e).trim().trim('、', '。', ',', '.', ' ', '　').ifEmpty { null }
+        return Utterance.Copy(customer, plate)
     }
 
     // ------------------------------------------------------------------

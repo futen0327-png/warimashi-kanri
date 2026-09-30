@@ -10,6 +10,12 @@ object AppConfig {
     /** 事務所タブが監視している送信先。 */
     const val ENTRIES_PATH = "warashi_entries"
 
+    /**
+     * 「コピー」で当日分を探すときに読む、送信先の最新の件数。
+     * 当日の登録がこれより多いと、古い分は検索対象から外れる。
+     */
+    const val COPY_FETCH_LIMIT = 500
+
     /** 顧客名の照合に使う登録済み顧客リスト（読み取りのみ）。 */
     const val CUSTOMERS_PATH = "warashi_customers"
 

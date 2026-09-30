@@ -54,6 +54,9 @@ class SpeechInput(
     private val main = Handler(Looper.getMainLooper())
     private var recognizer: SpeechRecognizer? = null
 
+    /** 固定の語に加えて認識されやすくする語（当日の客先名・ナンバー）。次の聞き取りから使う。 */
+    var extraHints: List<String> = emptyList()
+
     private var active = false
     private var stopping = false
     private var readyNotified = false
@@ -169,7 +172,7 @@ class SpeechInput(
         if (!hintsLogged) {
             hintsLogged = true
             log(
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) "biasing hints: ${RecognitionHints.words.size} words"
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) "biasing hints: ${RecognitionHints.words.size} words + ${extraHints.size} today"
                 else "biasing hints: not supported (Android 13+ only)"
             )
         }
@@ -370,7 +373,7 @@ class SpeechInput(
         putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, AppConfig.SPEECH_END_SILENCE_MS)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             // 固定候補の語と「サイズ＋割増」の組み合わせを認識されやすくする（対応している認識エンジンのみ有効）
-            putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList(RecognitionHints.words))
+            putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, ArrayList((RecognitionHints.words + extraHints).distinct()))
         }
     }
 

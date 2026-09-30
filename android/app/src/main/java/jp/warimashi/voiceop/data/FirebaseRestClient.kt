@@ -34,8 +34,21 @@ class FirebaseRestClient(private val dbUrl: String) {
         obj.keys().asSequence().mapNotNull { obj.opt(it) as? String }.toList()
     }
 
-    private fun request(method: String, path: String, body: String?): String {
-        val conn = URL("${dbUrl.trimEnd('/')}/$path.json").openConnection() as HttpURLConnection
+    /**
+     * `path` 直下の新しい順に最大 [limit] 件（push キーの順 = 登録順）。{キー: オブジェクト} 以外の値は除く。
+     * `$key` の並び替えはインデックス設定なしで使える。
+     */
+    suspend fun fetchLatestObjects(path: String, limit: Int): List<JSONObject> = withContext(Dispatchers.IO) {
+        val query = "orderBy=" + URLEncoder.encode("\"\$key\"", "UTF-8") + "&limitToLast=$limit"
+        val res = request("GET", path, null, query).trim()
+        if (res.isEmpty() || res == "null") return@withContext emptyList()
+        val obj = JSONObject(res)
+        obj.keys().asSequence().mapNotNull { obj.opt(it) as? JSONObject }.toList()
+    }
+
+    private fun request(method: String, path: String, body: String?, query: String? = null): String {
+        val url = "${dbUrl.trimEnd('/')}/$path.json" + if (query != null) "?$query" else ""
+        val conn = URL(url).openConnection() as HttpURLConnection
         try {
             conn.requestMethod = method
             conn.connectTimeout = 8000

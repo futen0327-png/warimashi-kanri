@@ -182,6 +182,65 @@ class UtteranceParserTest {
         assertNull(updates("1234 コンガラ 2トン 2割")[Field.REASON])
     }
 
+    // ---- コピー ----
+
+    private fun copy(raw: String) = UtteranceParser.parse(raw) as? Utterance.Copy
+        ?: throw AssertionError("コピーとして解釈できませんでした: $raw")
+
+    @Test
+    fun copy_aliases() {
+        listOf("コピー", "こぴー", "コーピー", "copy", "COPY", "えーと、コピー").forEach {
+            assertEquals(it, Utterance.Copy(null, null), copy(it))
+        }
+    }
+
+    @Test
+    fun copy_withCustomer() {
+        assertEquals(Utterance.Copy("中川組", null), copy("コピー 中川組"))
+        assertEquals(Utterance.Copy("アズマヤ", null), copy("コピー、アズマヤ"))
+        assertEquals(Utterance.Copy("中川組", null), copy("中川組のコピー"))
+        assertEquals(Utterance.Copy("中川組", null), copy("中川組をコピーして"))
+        assertEquals(Utterance.Copy("中川組", null), copy("コピー 客先は中川組"))
+    }
+
+    @Test
+    fun copy_withPlate() {
+        assertEquals(Utterance.Copy(null, "1234"), copy("コピー 1234"))
+        assertEquals(Utterance.Copy(null, "1234"), copy("コピー ナンバー 1234"))
+        assertEquals(Utterance.Copy(null, "1234"), copy("コピー千二百三十四"))
+        assertEquals(Utterance.Copy(null, "56"), copy("56番 コピー"))
+    }
+
+    @Test
+    fun copy_customerAndPlateInAnyOrder() {
+        val expected = Utterance.Copy("中川組", "1234")
+        assertEquals(expected, copy("コピー 中川組 1234"))
+        assertEquals(expected, copy("コピー 1234 中川組"))
+        assertEquals(expected, copy("コピー中川組1234"))
+        assertEquals(expected, copy("中川組 1234 コピー"))
+        assertEquals(expected, copy("1234 中川組のコピー"))
+        assertEquals(expected, copy("中川組 コピー 1234"))
+        assertEquals(expected, copy("コピー 客先 中川組 ナンバー 1234"))
+    }
+
+    @Test
+    fun copy_digitsInsideNameStayInName() {
+        assertEquals(Utterance.Copy("第一建設", null), copy("コピー 第一建設"))
+    }
+
+    @Test
+    fun copy_invalidConditionsAreNull() {
+        assertNull(UtteranceParser.parse("コピー 12345"))
+        assertNull(UtteranceParser.parse("コピー 1234 中川組 5678"))
+        assertNull(UtteranceParser.parse("中川組 コピー 西川組"))
+    }
+
+    @Test
+    fun copy_doesNotAffectOtherUtterances() {
+        assertEquals(Utterance.Command(Vocabulary.Command.SEND), UtteranceParser.parse("送信"))
+        assertEquals(single("2t"), updates("サイズ 2トン")[Field.SIZE])
+    }
+
     @Test
     fun labeled_reject() {
         assertEquals(FieldValue.Multi(listOf("赤レンガ")), updates("拒否、赤レンガ")[Field.REJECT])

@@ -36,6 +36,14 @@ class TermSet<T>(entries: List<Pair<String, T>>) {
         return null
     }
 
+    /** 正規化済みテキストの end 位置で終わる語を探す（最長一致）。 */
+    fun matchEndingAt(text: String, end: Int): Pair<T, Int>? {
+        for ((form, v) in forms) {
+            if (form.length <= end && text.startsWith(form, end - form.length)) return v to form.length
+        }
+        return null
+    }
+
     companion object {
         fun ofTerms(terms: List<Term>): TermSet<Term> =
             TermSet(terms.flatMap { t -> t.forms.map { it to t } })
@@ -77,6 +85,9 @@ object Vocabulary {
             "確認" to Command.READBACK, "かくにん" to Command.READBACK, "読み上げ" to Command.READBACK,
         )
     )
+
+    // ---- コピー（当日の登録から1件を入力欄に写す）。客先名・ナンバーを前後に付けられる ----
+    val copy: TermSet<Unit> = TermSet(listOf("コピー", "こぴー", "コーピー", "copy").map { it to Unit })
 
     // ---- ② 品目 ----
     val items: List<Term> = listOf(

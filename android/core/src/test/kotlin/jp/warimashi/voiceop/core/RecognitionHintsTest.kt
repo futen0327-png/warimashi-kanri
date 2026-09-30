@@ -1,5 +1,6 @@
 package jp.warimashi.voiceop.core
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -28,5 +29,20 @@ class RecognitionHintsTest {
     @Test
     fun noDuplicates() {
         assertTrue(words.size == words.distinct().size)
+    }
+
+    @Test
+    fun forTodayAddsCustomersAndPlates() {
+        val today = listOf(
+            RecordedEntry("1234", "コンガラ", "4t", "20", emptyList(), "中川組", null),
+            RecordedEntry("", "コンガラ", "4t", "20", emptyList(), "中川組 ", null),
+            RecordedEntry("56", "石", "2t", "none", emptyList(), "", null),
+        )
+        assertEquals(listOf("中川組", "1234", "56"), RecognitionHints.forToday(today))
+    }
+
+    @Test
+    fun containsCopyWord() {
+        assertTrue("コピー" in words)
     }
 }

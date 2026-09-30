@@ -6,10 +6,15 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.ZoneId
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
+import jp.warimashi.voiceop.core.CopySearch
 import jp.warimashi.voiceop.core.EntryBuffer
+import jp.warimashi.voiceop.core.RecognitionHints
+import jp.warimashi.voiceop.core.RecordedEntry
 import jp.warimashi.voiceop.core.SurchargeRules
 import jp.warimashi.voiceop.core.UtteranceParser
 import jp.warimashi.voiceop.core.VoiceInterpreter
@@ -28,6 +33,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 enum class Phase { IDLE, STARTING, LISTENING, SENDING }
 
@@ -78,6 +84,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
     private val gas = GasClient(AppConfig.GAS_WEBHOOK_URL)
 
     private var customers: List<String> = emptyList()
+
+    /** 当日の登録（「コピー」の検索と、客先名・ナンバーの認識ヒントに使う）。 */
+    private var todayEntries: List<RecordedEntry> = emptyList()
 
     init {
         speech.logServices()
@@ -274,7 +283,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
 
     private fun interpret(candidates: List<String>) {
         trace("heard: $candidates")
-        val outcome = VoiceInterpreter.handle(_state.value.buffer, candidates, customers)
+        if (VoiceInterpreter.isCopy(candidates)) {
+            // コピーは他の端末の登録も対象なので、その場で当日分を読み直してから探す
+            viewModelScope.launch {
+                if (refreshToday()) {
+                    applyOutcome(candidates)
+                } else {
+                    say("登録データを取得できませんでした。電波を確認してください", error = true)
+                }
+            }
+            return
+        }
+        applyOutcome(candidates)
+    }
+
+    private fun applyOutcome(candidates: List<String>) {
+        val outcome = VoiceInterpreter.handle(_state.value.buffer, candidates, customers, todayEntries)
         if (outcome.speech == VoiceInterpreter.NOT_UNDERSTOOD) {
             // どの候補も解釈できなかった: 候補ごとに、どこまで解釈できて何が残ったかを残す
             candidates.forEachIndexed { i, c ->
@@ -334,7 +358,34 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
                     _state.update { it.copy(customerCount = list.size) }
                 }
         }
+        viewModelScope.launch { refreshToday() }
     }
+
+    /** 当日の登録を読み直す。成功したら true。認識ヒント（当日の客先名・ナンバー）も更新する。 */
+    private suspend fun refreshToday(): Boolean {
+        val result = runCatching {
+            firebase.fetchLatestObjects(AppConfig.ENTRIES_PATH, AppConfig.COPY_FETCH_LIMIT).map(::toRecordedEntry)
+        }
+        val all = result.getOrElse {
+            trace("today's entries fetch failed: ${it.message}")
+            return false
+        }
+        todayEntries = CopySearch.today(all, Instant.now(), ZoneId.systemDefault())
+        speech.extraHints = RecognitionHints.forToday(todayEntries)
+        trace("today's entries: ${todayEntries.size} (hints ${speech.extraHints.size})")
+        return true
+    }
+
+    private fun toRecordedEntry(o: JSONObject) = RecordedEntry(
+        plate = o.optString("plate"),
+        item = o.optString("item"),
+        vehicle = o.optString("vehicle"),
+        surcharge = o.optString("surcharge"),
+        reasons = o.optString("reasons").split(",").map { it.trim() }.filter { it.isNotEmpty() },
+        customer = o.optString("customer"),
+        timestamp = runCatching { Instant.parse(o.optString("timestamp")) }.getOrNull(),
+        deleted = o.optBoolean("deletedFromOperator") || o.optBoolean("deletedFromOffice"),
+    )
 
     private fun say(text: String, error: Boolean = false, detail: String = "") {
         if (error) cues.error()

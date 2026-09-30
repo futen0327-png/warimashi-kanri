@@ -221,4 +221,121 @@ class VoiceInterpreterTest {
         assertTrue(say(o.buffer, "確認").speech.endsWith("送信できます"))
         assertEquals(VoiceInterpreter.Action.SEND, say(o.buffer, "送信").action)
     }
+
+    // ---- コピー ----
+
+    private fun entry(
+        plate: String, customer: String, time: String,
+        item: String = "コンガラ", vehicle: String = "4t", surcharge: String = "20",
+        reasons: List<String> = emptyList(), deleted: Boolean = false,
+    ) = RecordedEntry(plate, item, vehicle, surcharge, reasons, customer, java.time.Instant.parse(time), deleted)
+
+    private val todayEntries = listOf(
+        entry("1234", "中川組", "2026-09-30T00:10:00Z", reasons = listOf("大きさ", "鉄筋")),
+        entry("5678", "西川組", "2026-09-30T01:00:00Z", item = "アスガラ", vehicle = "10t", surcharge = "cutting"),
+        entry("1234", "中川組", "2026-09-30T02:00:00Z", vehicle = "2t", surcharge = "40"),
+        entry("9999", "アズマヤ", "2026-09-30T03:00:00Z", item = "石", vehicle = "2t", surcharge = "none"),
+    )
+
+    private fun copySay(b: EntryBuffer, vararg candidates: String) =
+        VoiceInterpreter.handle(b, candidates.toList(), customers, todayEntries)
+
+    @Test
+    fun copy_withoutConditionCopiesLatest() {
+        val o = copySay(EntryBuffer(), "コピー")
+        assertEquals("9999", o.buffer.plate)
+        assertEquals("石", o.buffer.item)
+        assertEquals("アズマヤ", o.buffer.customer)
+        assertFalse(o.error)
+    }
+
+    @Test
+    fun copy_byCustomerFillsAllFieldsAndReadsOnce() {
+        val o = copySay(EntryBuffer(), "コピー 中川組")
+        val b = o.buffer
+        assertEquals("1234", b.plate)
+        assertEquals("コンガラ", b.item)
+        assertEquals("2t", b.size)
+        assertEquals("40", b.surcharge)
+        assertEquals(emptyList<String>(), b.reasons)
+        assertEquals("中川組", b.customer)
+        assertTrue(b.customerRegistered)
+        assertEquals(VoiceInterpreter.Action.NONE, o.action)
+        assertTrue(o.speech, o.speech.startsWith("コピーしました。ナンバー 1 2 3 4、コンガラ、2トン、4割、客先、中川組。送信できます"))
+    }
+
+    @Test
+    fun copy_byCustomerToleratesRecognitionVariants() {
+        assertEquals("西川組", copySay(EntryBuffer(), "コピー 西川組さん").buffer.customer)
+        assertEquals("アズマヤ", copySay(EntryBuffer(), "コピー あずまや").buffer.customer)
+    }
+
+    @Test
+    fun copy_byPlateAndBoth() {
+        assertEquals("西川組", copySay(EntryBuffer(), "コピー 5678").buffer.customer)
+        val o = copySay(EntryBuffer(), "1234 中川組 コピー")
+        assertEquals("40", o.buffer.surcharge)
+        // 同じナンバーが2件あれば新しい方（02:00 の 2トン 4割）
+        val latest = copySay(EntryBuffer(), "コピー 1234").buffer
+        assertEquals("2t", latest.size)
+        assertEquals(emptyList<String>(), latest.reasons)
+    }
+
+    @Test
+    fun copy_replacesCurrentInput() {
+        val start = say(EntryBuffer(), "拒否 赤レンガ").buffer
+        val o = copySay(start, "コピー 西川組")
+        assertEquals("cutting", o.buffer.surcharge)
+        assertEquals(emptyList<String>(), o.buffer.rejects)
+    }
+
+    @Test
+    fun copy_noMatch() {
+        listOf("コピー 丸本建材", "コピー 4321", "コピー 西川組 1234").forEach {
+            val o = copySay(EntryBuffer(), it)
+            assertEquals(it, VoiceInterpreter.NO_MATCH, o.speech)
+            assertTrue(o.error)
+            assertTrue(o.buffer.isEmpty)
+        }
+        assertEquals(VoiceInterpreter.NO_MATCH, say(EntryBuffer(), "コピー").speech)
+    }
+
+    @Test
+    fun copy_thenSendUsesNormalFlow() {
+        val copied = copySay(EntryBuffer(), "コピー 中川組").buffer
+        val send = say(copied, "送信")
+        assertEquals(VoiceInterpreter.Action.SEND, send.action)
+        val e = send.buffer.toEntry("t")
+        assertEquals("1234", e["plate"])
+        assertEquals("コンガラ", e["item"])
+        assertEquals("2t", e["vehicle"])
+        assertEquals("40", e["surcharge"])
+        assertEquals("中川組", e["customer"])
+    }
+
+    @Test
+    fun copy_thenCorrectWithLabeledUtterance() {
+        val copied = copySay(EntryBuffer(), "コピー 中川組").buffer
+        val fixed = say(copied, "サイズ 4トン")
+        assertEquals("4t", fixed.buffer.size)
+        assertEquals("40", fixed.buffer.surcharge)
+        assertEquals("1234", fixed.buffer.plate)
+        val plate = say(fixed.buffer, "ナンバー 4321")
+        assertEquals("4321", plate.buffer.plate)
+        assertEquals(VoiceInterpreter.Action.SEND, say(plate.buffer, "送信").action)
+    }
+
+    @Test
+    fun copy_stoneKeepsAutoSurcharge() {
+        val b = copySay(EntryBuffer(), "コピー アズマヤ").buffer
+        assertEquals("none", b.surcharge)
+        assertTrue(b.surchargeAuto)
+    }
+
+    @Test
+    fun isCopy() {
+        assertTrue(VoiceInterpreter.isCopy(listOf("コピー 中川組")))
+        assertFalse(VoiceInterpreter.isCopy(listOf("送信")))
+        assertFalse(VoiceInterpreter.isCopy(listOf("今日はいい天気", "送信")))
+    }
 }

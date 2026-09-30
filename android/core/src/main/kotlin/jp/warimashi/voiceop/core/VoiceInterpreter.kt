@@ -19,18 +19,26 @@ object VoiceInterpreter {
     )
 
     const val NOT_UNDERSTOOD = "聞き取れませんでした。もう一度お願いします"
+    const val NO_MATCH = "該当なし"
 
     /**
      * @param candidates SpeechRecognizer が返した認識候補（確からしい順）
      * @param customers 登録済み顧客名（Firebase の warashi_customers）
+     * @param today 当日の登録（「コピー」の検索対象。[CopySearch.today] で絞ったもの）
      */
-    fun handle(buffer: EntryBuffer, candidates: List<String>, customers: List<String>): Outcome {
+    fun handle(
+        buffer: EntryBuffer,
+        candidates: List<String>,
+        customers: List<String>,
+        today: List<RecordedEntry> = emptyList(),
+    ): Outcome {
         val parsed = candidates.map { it to UtteranceParser.parse(it) }
         val first = parsed.firstOrNull { it.second != null }?.second
             ?: return Outcome(buffer, NOT_UNDERSTOOD, error = true)
 
         return when (first) {
             is Utterance.Command -> command(buffer, first.command)
+            is Utterance.Copy -> copy(buffer, first, today, customers)
             is Utterance.Updates -> {
                 // 顧客名は他の認識候補も照合に使う（同音異字の揺れ対策）
                 val customerAlternatives = parsed.mapNotNull { (_, u) ->
@@ -57,6 +65,17 @@ object VoiceInterpreter {
                 else -> Outcome(buffer, "", action = Action.SEND)
             }
         }
+    }
+
+    /** 呼び出し側が、当日の登録を最新にしてから [handle] すべき発話（「コピー」）か。 */
+    fun isCopy(candidates: List<String>): Boolean =
+        candidates.firstNotNullOfOrNull { UtteranceParser.parse(it) } is Utterance.Copy
+
+    /** 当日の登録から1件を入力欄に写す。登録はせず、内容を読み上げるだけ（送信は通常どおり「送信」）。 */
+    private fun copy(buffer: EntryBuffer, u: Utterance.Copy, today: List<RecordedEntry>, customers: List<String>): Outcome {
+        val hit = CopySearch.find(today, u.customer, u.plate) ?: return Outcome(buffer, NO_MATCH, error = true)
+        val b = hit.toBuffer(customers)
+        return Outcome(b, "コピーしました。" + readback(b) + "。" + status(b))
     }
 
     private fun apply(

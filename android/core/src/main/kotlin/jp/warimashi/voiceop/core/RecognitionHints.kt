@@ -18,7 +18,7 @@ object RecognitionHints {
             addAll(Vocabulary.reasons.map { it.value })
             add("ダブルメッシュ")
             addAll(Vocabulary.rejects.map { it.value })
-            addAll(listOf("ナンバー", "品目", "サイズ", "割増", "理由", "客先", "拒否", "パス", "送信", "取消", "確認"))
+            addAll(listOf("ナンバー", "品目", "サイズ", "割増", "理由", "客先", "拒否", "パス", "送信", "取消", "確認", "コピー"))
         }
         // 石・瓦は割増なし固定なので、組み合わせはコンガラ・アスガラ・残土で選べるものだけ
         val combos = Vocabulary.sizes.flatMap { size ->
@@ -29,4 +29,10 @@ object RecognitionHints {
         }
         (base + combos).distinct()
     }
+
+    /** 当日の客先名とナンバー（「コピー 中川組」などを認識しやすくする）。固定の語と重なるものは除く。 */
+    fun forToday(today: List<RecordedEntry>): List<String> =
+        (today.map { it.customer.trim() } + today.map { it.plate.trim() })
+            .filter { it.isNotEmpty() && it !in words }
+            .distinct()
 }
