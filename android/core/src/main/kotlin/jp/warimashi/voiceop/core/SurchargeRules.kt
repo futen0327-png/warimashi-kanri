@@ -21,11 +21,6 @@ object SurchargeRules {
     fun isAllowed(item: String?, size: String?, surcharge: String?): Boolean =
         surcharge != null && surcharge in options(item, size)
 
-    /** この割増区分で理由が未入力なら、読み上げの最後に「理由をどうぞ」と促す。 */
-    val PROMPTS_REASON: Set<String> = setOf("20", "40", "bad")
-
-    fun promptsReason(b: EntryBuffer): Boolean = b.surcharge in PROMPTS_REASON && b.reasons.isEmpty()
-
     /** 既存PWAの scLbl と同じ表示名。 */
     fun label(key: String): String = when (key) {
         "none" -> "割増なし"

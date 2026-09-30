@@ -205,24 +205,6 @@ class VoiceInterpreterTest {
         assertEquals("20", o.buffer.surcharge)
     }
 
-    // ---- 「理由をどうぞ」 ----
-
-    @Test
-    fun reasonPrompt_afterSurchargeWithoutReason() {
-        listOf("コンガラ 4トン 2割", "コンガラ 4トン 4割", "コンガラ 10トン 不良").forEach {
-            val o = say(EntryBuffer(), it)
-            assertTrue(o.speech, o.speech.endsWith("送信できます。理由をどうぞ"))
-        }
-    }
-
-    @Test
-    fun reasonPrompt_notForOtherSurcharges() {
-        listOf("コンガラ 4トン 割増なし", "コンガラ 10トン 良", "コンガラ 10トン 普通", "アスガラ 10トン 切削").forEach {
-            val o = say(EntryBuffer(), it)
-            assertFalse(o.speech, o.speech.contains(VoiceInterpreter.REASON_PROMPT))
-        }
-    }
-
     @Test
     fun positionalWithReasons_readsReasonAfterSurcharge() {
         val o = say(EntryBuffer(), "コンガラ 4トン 2割 大きさ")
@@ -231,25 +213,12 @@ class VoiceInterpreterTest {
     }
 
     @Test
-    fun reasonPrompt_notWhenReasonGiven() {
-        assertFalse(say(EntryBuffer(), "コンガラ 4トン 2割 大きさ").speech.contains(VoiceInterpreter.REASON_PROMPT))
-        val b = say(EntryBuffer(), "コンガラ 4トン 2割").buffer
-        assertFalse(say(b, "大きさ").speech.contains(VoiceInterpreter.REASON_PROMPT))
-    }
-
-    @Test
-    fun reasonPrompt_onReadback() {
-        val b = say(EntryBuffer(), "1234 コンガラ 2トン 2割").buffer
-        assertTrue(say(b, "確認").speech.endsWith("送信できます。理由をどうぞ"))
-        val withReason = say(b, "鉄筋").buffer
-        assertFalse(say(withReason, "確認").speech.contains(VoiceInterpreter.REASON_PROMPT))
-    }
-
-    @Test
-    fun reasonPrompt_notWithErrors() {
-        // 選べない組み合わせは言い直しが先
-        val o = say(EntryBuffer(), "コンガラ 2トン 切削")
-        assertTrue(o.error)
-        assertFalse(o.speech.contains(VoiceInterpreter.REASON_PROMPT))
+    fun reasonsStayOptional_noPrompt() {
+        // 理由は任意: 未入力でも送信でき、促しの読み上げもしない
+        val o = say(EntryBuffer(), "コンガラ 4トン 2割")
+        assertTrue(o.buffer.isSendable)
+        assertTrue(o.speech, o.speech.endsWith("送信できます"))
+        assertTrue(say(o.buffer, "確認").speech.endsWith("送信できます"))
+        assertEquals(VoiceInterpreter.Action.SEND, say(o.buffer, "送信").action)
     }
 }

@@ -19,7 +19,6 @@ object VoiceInterpreter {
     )
 
     const val NOT_UNDERSTOOD = "聞き取れませんでした。もう一度お願いします"
-    const val REASON_PROMPT = "理由をどうぞ"
 
     /**
      * @param candidates SpeechRecognizer が返した認識候補（確からしい順）
@@ -47,7 +46,7 @@ object VoiceInterpreter {
         Vocabulary.Command.CANCEL -> Outcome(EntryBuffer(), "取り消しました")
         Vocabulary.Command.READBACK ->
             if (buffer.isEmpty) Outcome(buffer, "まだ何も入力されていません")
-            else Outcome(buffer, (listOf(readback(buffer), status(buffer)) + reasonPrompt(buffer)).joinToString("。"))
+            else Outcome(buffer, readback(buffer) + "。" + status(buffer))
         Vocabulary.Command.SEND -> {
             val missing = buffer.missingRequired
             when {
@@ -163,10 +162,7 @@ object VoiceInterpreter {
         val parts = ArrayList<String>()
         if (said.isNotEmpty()) parts += said.joinToString("、")
         parts += errors
-        if (errors.isEmpty()) {
-            parts += status(b)
-            parts += reasonPrompt(b)
-        }
+        if (errors.isEmpty()) parts += status(b)
         return Outcome(b, parts.joinToString("。"), error = errors.isNotEmpty())
     }
 
@@ -192,10 +188,6 @@ object VoiceInterpreter {
             else -> "あと、" + missing.joinToString("、") { it.speech }
         }
     }
-
-    /** 割増が2割・4割・不良で理由が未入力なら「理由をどうぞ」（[SurchargeRules.PROMPTS_REASON]）。 */
-    private fun reasonPrompt(b: EntryBuffer): List<String> =
-        if (SurchargeRules.promptsReason(b)) listOf(REASON_PROMPT) else emptyList()
 
     /** 「1234」を1桁ずつ読ませる（「せんにひゃく…」と読まれないように）。 */
     private fun spellDigits(s: String): String = s.toList().joinToString(" ")
