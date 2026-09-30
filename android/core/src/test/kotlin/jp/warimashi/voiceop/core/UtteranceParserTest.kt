@@ -119,6 +119,69 @@ class UtteranceParserTest {
         assertEquals(FieldValue.Multi(listOf("大きさ", "鉄筋", "Wメッシュ")), u[Field.REASON])
     }
 
+    // ---- 割増理由: 「理由」なしでも、入力の途中でもいつでも言える ----
+
+    @Test
+    fun reasonsOnly_withoutPrefix() {
+        val u = updates("大きさ、鉄筋")
+        assertEquals(mapOf(Field.REASON to FieldValue.Multi(listOf("大きさ", "鉄筋"))), u)
+    }
+
+    @Test
+    fun reasonsOnly_aliasesAndNoSeparators() {
+        assertEquals(FieldValue.Multi(listOf("Wメッシュ")), updates("ダブルメッシュ")[Field.REASON])
+        assertEquals(FieldValue.Multi(listOf("大きさ", "鉄筋")), updates("おおきさとてっきん")[Field.REASON])
+        assertEquals(FieldValue.Multi(listOf("大谷石", "その他")), updates("えーと大谷石とその他")[Field.REASON])
+    }
+
+    @Test
+    fun reasonsOnly_prefixIsOptional() {
+        assertEquals(updates("理由 大きさ 鉄筋"), updates("大きさ 鉄筋"))
+        assertEquals(updates("りゆう 二次製品"), updates("二次製品"))
+    }
+
+    @Test
+    fun reasonsOnly_passAloneIsStillPlate() {
+        // 「パス」だけは従来どおりナンバーの空欄（理由を消すのは「理由 パス」）
+        assertEquals(mapOf(Field.NUMBER to FieldValue.Clear), updates("パス"))
+    }
+
+    @Test
+    fun reasonsOnly_unknownWordIsNull() {
+        assertNull(UtteranceParser.parse("大きさ 天気"))
+        assertNull(UtteranceParser.parse("大きさ コンガラ"))
+    }
+
+    @Test
+    fun positional_thenReasonsWithoutPrefix() {
+        val u = updates("1234 コンガラ 4トン 2割 大きさ 鉄筋")
+        assertEquals(single("1234"), u[Field.NUMBER])
+        assertEquals(single("コンガラ"), u[Field.ITEM])
+        assertEquals(single("4t"), u[Field.SIZE])
+        assertEquals(single("20"), u[Field.SURCHARGE])
+        assertEquals(FieldValue.Multi(listOf("大きさ", "鉄筋")), u[Field.REASON])
+    }
+
+    @Test
+    fun positional_thenReasonsWithPrefix() {
+        val u = updates("コンガラ 4トン 2割 理由 大きさ")
+        assertEquals(single("20"), u[Field.SURCHARGE])
+        assertEquals(FieldValue.Multi(listOf("大きさ")), u[Field.REASON])
+        assertEquals(updates("コンガラ4トン2割理由大きさ"), u)
+        assertEquals(updates("コンガラ 4トン 2割 大きさ"), u)
+    }
+
+    @Test
+    fun positional_thenReasonPassNeedsPrefix() {
+        assertEquals(FieldValue.Clear, updates("コンガラ 4トン 2割 理由 パス")[Field.REASON])
+        assertNull(UtteranceParser.parse("コンガラ 4トン 2割 パス"))
+    }
+
+    @Test
+    fun positional_withoutReasons_hasNoReasonUpdate() {
+        assertNull(updates("1234 コンガラ 2トン 2割")[Field.REASON])
+    }
+
     @Test
     fun labeled_reject() {
         assertEquals(FieldValue.Multi(listOf("赤レンガ")), updates("拒否、赤レンガ")[Field.REJECT])

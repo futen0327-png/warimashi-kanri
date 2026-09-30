@@ -181,4 +181,75 @@ class VoiceInterpreterTest {
         val o = say(b, "確認")
         assertTrue(o.speech, o.speech.startsWith("ナンバー 1 2 3 4、コンガラ、2トン、2割"))
     }
+
+    // ---- 割増理由: 状態に関係なく置き換え ----
+
+    @Test
+    fun reasonsOnly_onEmptyBuffer() {
+        val o = say(EntryBuffer(), "大きさ")
+        assertEquals(listOf("大きさ"), o.buffer.reasons)
+        assertNull(o.buffer.plate)
+        assertNull(o.buffer.item)
+        assertNull(o.buffer.surcharge)
+    }
+
+    @Test
+    fun reasonsOnly_replaceAndKeepOtherFields() {
+        var b = say(EntryBuffer(), "1234 コンガラ 4トン 2割").buffer
+        b = say(b, "鉄筋").buffer
+        val o = say(b, "有筋 木くず")
+        assertEquals(listOf("有筋", "木くず"), o.buffer.reasons)
+        assertEquals("1234", o.buffer.plate)
+        assertEquals("コンガラ", o.buffer.item)
+        assertEquals("4t", o.buffer.size)
+        assertEquals("20", o.buffer.surcharge)
+    }
+
+    // ---- 「理由をどうぞ」 ----
+
+    @Test
+    fun reasonPrompt_afterSurchargeWithoutReason() {
+        listOf("コンガラ 4トン 2割", "コンガラ 4トン 4割", "コンガラ 10トン 不良").forEach {
+            val o = say(EntryBuffer(), it)
+            assertTrue(o.speech, o.speech.endsWith("送信できます。理由をどうぞ"))
+        }
+    }
+
+    @Test
+    fun reasonPrompt_notForOtherSurcharges() {
+        listOf("コンガラ 4トン 割増なし", "コンガラ 10トン 良", "コンガラ 10トン 普通", "アスガラ 10トン 切削").forEach {
+            val o = say(EntryBuffer(), it)
+            assertFalse(o.speech, o.speech.contains(VoiceInterpreter.REASON_PROMPT))
+        }
+    }
+
+    @Test
+    fun positionalWithReasons_readsReasonAfterSurcharge() {
+        val o = say(EntryBuffer(), "コンガラ 4トン 2割 大きさ")
+        assertEquals(listOf("大きさ"), o.buffer.reasons)
+        assertTrue(o.speech, o.speech.startsWith("コンガラ、4トン、2割、理由、大きさ"))
+    }
+
+    @Test
+    fun reasonPrompt_notWhenReasonGiven() {
+        assertFalse(say(EntryBuffer(), "コンガラ 4トン 2割 大きさ").speech.contains(VoiceInterpreter.REASON_PROMPT))
+        val b = say(EntryBuffer(), "コンガラ 4トン 2割").buffer
+        assertFalse(say(b, "大きさ").speech.contains(VoiceInterpreter.REASON_PROMPT))
+    }
+
+    @Test
+    fun reasonPrompt_onReadback() {
+        val b = say(EntryBuffer(), "1234 コンガラ 2トン 2割").buffer
+        assertTrue(say(b, "確認").speech.endsWith("送信できます。理由をどうぞ"))
+        val withReason = say(b, "鉄筋").buffer
+        assertFalse(say(withReason, "確認").speech.contains(VoiceInterpreter.REASON_PROMPT))
+    }
+
+    @Test
+    fun reasonPrompt_notWithErrors() {
+        // 選べない組み合わせは言い直しが先
+        val o = say(EntryBuffer(), "コンガラ 2トン 切削")
+        assertTrue(o.error)
+        assertFalse(o.speech.contains(VoiceInterpreter.REASON_PROMPT))
+    }
 }

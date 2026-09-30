@@ -19,6 +19,7 @@ object VoiceInterpreter {
     )
 
     const val NOT_UNDERSTOOD = "聞き取れませんでした。もう一度お願いします"
+    const val REASON_PROMPT = "理由をどうぞ"
 
     /**
      * @param candidates SpeechRecognizer が返した認識候補（確からしい順）
@@ -46,7 +47,7 @@ object VoiceInterpreter {
         Vocabulary.Command.CANCEL -> Outcome(EntryBuffer(), "取り消しました")
         Vocabulary.Command.READBACK ->
             if (buffer.isEmpty) Outcome(buffer, "まだ何も入力されていません")
-            else Outcome(buffer, readback(buffer) + "。" + status(buffer))
+            else Outcome(buffer, (listOf(readback(buffer), status(buffer)) + reasonPrompt(buffer)).joinToString("。"))
         Vocabulary.Command.SEND -> {
             val missing = buffer.missingRequired
             when {
@@ -69,6 +70,8 @@ object VoiceInterpreter {
         val said = ArrayList<String>()
         val errors = ArrayList<String>()
         var spokenSurcharge: FieldValue? = null
+        /** 理由の読み上げは割増の後にする（「2割、理由、大きさ」の順）。 */
+        var reasonSaid: String? = null
         var itemOrSizeChanged = false
 
         for (u in updates) {
@@ -98,7 +101,7 @@ object VoiceInterpreter {
                         errors += "理由は${EntryBuffer.MAX_REASONS}つまでです"
                     }
                     b = b.copy(reasons = values)
-                    said += if (values.isEmpty()) "理由、空欄"
+                    reasonSaid = if (values.isEmpty()) "理由、空欄"
                     else "理由、" + values.joinToString("、") { Vocabulary.reasonTerm(it)?.speech ?: it }
                 }
                 Field.REJECT -> {
@@ -155,10 +158,15 @@ object VoiceInterpreter {
             }
         }
 
+        reasonSaid?.let { said += it }
+
         val parts = ArrayList<String>()
         if (said.isNotEmpty()) parts += said.joinToString("、")
         parts += errors
-        if (errors.isEmpty()) parts += status(b)
+        if (errors.isEmpty()) {
+            parts += status(b)
+            parts += reasonPrompt(b)
+        }
         return Outcome(b, parts.joinToString("。"), error = errors.isNotEmpty())
     }
 
@@ -184,6 +192,10 @@ object VoiceInterpreter {
             else -> "あと、" + missing.joinToString("、") { it.speech }
         }
     }
+
+    /** 割増が2割・4割・不良で理由が未入力なら「理由をどうぞ」（[SurchargeRules.PROMPTS_REASON]）。 */
+    private fun reasonPrompt(b: EntryBuffer): List<String> =
+        if (SurchargeRules.promptsReason(b)) listOf(REASON_PROMPT) else emptyList()
 
     /** 「1234」を1桁ずつ読ませる（「せんにひゃく…」と読まれないように）。 */
     private fun spellDigits(s: String): String = s.toList().joinToString(" ")

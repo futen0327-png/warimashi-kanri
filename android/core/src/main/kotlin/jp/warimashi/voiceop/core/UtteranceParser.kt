@@ -26,8 +26,10 @@ sealed interface Utterance {
  * 発話の解釈（設計書5章）。
  *
  * - 全体が「送信」「取消」ならコマンド
+ * - 全体が割増理由の語だけ（「大きさ 鉄筋」）なら、「理由」を付けなくても理由
  * - 先頭が項目名（ナンバー/品目/サイズ/割増/理由/客先/拒否）なら「項目名+値」方式
- * - それ以外は「ナンバー → 品目 → サイズ → 割増」の位置ベース方式
+ * - それ以外は「ナンバー → 品目 → サイズ → 割増」の位置ベース方式。
+ *   その後ろに割増理由を続けてもよい（「コンガラ 4トン 2割 大きさ」。「理由」は付けても付けなくてもよい）
  *
  * 音声認識は区切り（空白・読点）を入れないことが多いので、区切りに頼らず
  * 正規化テキストを先頭から語彙と突き合わせて切り分ける。解釈しきれない文字が
@@ -43,6 +45,7 @@ object UtteranceParser {
         if (t.isEmpty()) return null
 
         parseCommand(t)?.let { return it }
+        parseReasonsOnly(t)?.let { return it }
 
         val labelStart = fillerSkips(t, 0).firstOrNull { Vocabulary.fieldLabels.matchAt(t, it) != null }
         return if (labelStart != null) parseLabeled(nt, labelStart) else parsePositional(t)
@@ -61,6 +64,18 @@ object UtteranceParser {
     }
 
     // ------------------------------------------------------------------
+    // 理由の語だけの発話（「理由」は不要。入力の途中でもいつでも言える）
+    // ------------------------------------------------------------------
+
+    private fun parseReasonsOnly(t: String): Utterance? {
+        for (p in fillerSkips(t, 0)) {
+            val (value, end) = terms(t, p, Vocabulary.reasonSet) ?: continue
+            if (reachesEnd(t, end)) return Utterance.Updates(listOf(FieldUpdate(Field.REASON, value)), labeled = true)
+        }
+        return null
+    }
+
+    // ------------------------------------------------------------------
     // 位置ベース（ナンバー → 品目 → サイズ → 割増）
     // ------------------------------------------------------------------
 
@@ -72,7 +87,9 @@ object UtteranceParser {
     /** バックトラックで先頭から各スロットを埋め、全文字を使い切れる解釈を探す。 */
     private fun positionalSearch(t: String, pos: Int, slot: Int, acc: List<FieldUpdate>): List<FieldUpdate>? {
         if (slot == positionalSlots.size) {
-            return if (acc.isNotEmpty() && reachesEnd(t, pos)) acc else null
+            if (acc.isEmpty()) return null
+            if (reachesEnd(t, pos)) return acc
+            return reasonTail(t, pos)?.let { acc + FieldUpdate(Field.REASON, it) }
         }
         val field = positionalSlots[slot]
         for (p in fillerSkips(t, pos)) {
@@ -82,6 +99,20 @@ object UtteranceParser {
         }
         // このスロットは発話されなかった（値を変更しない）
         return positionalSearch(t, pos, slot + 1, acc)
+    }
+
+    /**
+     * 位置ベースの後ろに続く割増理由（最後まで）。「理由」が付いていれば取り除いてから照合する。
+     * 「パス」（理由を空欄）は「理由」が付いているときだけ受け付ける。
+     */
+    private fun reasonTail(t: String, pos: Int): FieldValue? {
+        for (p in fillerSkips(t, pos)) {
+            val label = Vocabulary.fieldLabels.matchAt(t, p)
+            val hit = if (label != null && label.first == Field.REASON) multiValue(t, p + label.second, Vocabulary.reasonSet)
+            else terms(t, p, Vocabulary.reasonSet)
+            if (hit != null && reachesEnd(t, hit.second)) return hit.first
+        }
+        return null
     }
 
     /** pos から始まる、その項目の値として解釈できる候補（値, 終了位置）。 */
@@ -163,6 +194,11 @@ object UtteranceParser {
         for (p in fillerSkips(t, pos)) {
             Vocabulary.pass.matchAt(t, p)?.let { (_, len) -> return FieldValue.Clear to p + len }
         }
+        return terms(t, pos, set)
+    }
+
+    /** 語彙の語の並び（「パス」は含めない）。1語もなければ null。 */
+    private fun terms(t: String, pos: Int, set: TermSet<Term>): Pair<FieldValue, Int>? {
         val values = ArrayList<String>()
         var cur = pos
         while (true) {
