@@ -797,6 +797,10 @@ function clearForm() {
 // 事務所
 // ======================================================
 var allEntries=[]; var cf='all';
+// 画面表示用: 事務所・オペの両方が消去した登録は非表示（データ自体はFirebaseに残し、集計にだけ使う）
+function activeEntries(){
+  return allEntries.filter(function(e){return !(e.deletedFromOffice && e.deletedFromOperator);});
+}
 function renderOffice() {
   var list=allEntries.filter(function(e){return !e.deletedFromOffice;}).slice().reverse();
   if (cf==='new') list=list.filter(function(e){return !e.confirmed;});
@@ -832,12 +836,13 @@ function renderCard(e) {
 }
 function renderStats() {
   var now=new Date();
-  var today=allEntries.filter(function(e){return new Date(e.timestamp).toDateString()===now.toDateString();}).length;
-  var unconf=allEntries.filter(function(e){return !e.confirmed;}).length;
+  var act=activeEntries();
+  var today=act.filter(function(e){return new Date(e.timestamp).toDateString()===now.toDateString();}).length;
+  var unconf=act.filter(function(e){return !e.confirmed;}).length;
   document.getElementById('statsBar').innerHTML=
     '<div class="stat-pill">本日 <span>'+today+'件</span></div>'
     +'<div class="stat-pill">未確認 <span style="color:var(--accent)">'+unconf+'件</span></div>'
-    +'<div class="stat-pill">累計 <span>'+allEntries.length+'件</span></div>';
+    +'<div class="stat-pill">累計 <span>'+act.length+'件</span></div>';
 }
 
 // ======================================================
@@ -1015,7 +1020,7 @@ function deleteEntry(id){
 }
 function confirmAll(){
   if(!fbReady) return;
-  var ids=allEntries.filter(function(e){return !e.confirmed;}).map(function(e){return e.id;});
+  var ids=activeEntries().filter(function(e){return !e.confirmed;}).map(function(e){return e.id;});
   if(!ids.length) return;
   fbConfirmAll(ids).then(function(){showToast('全て確認済みにしました');});
 }
@@ -1477,13 +1482,14 @@ if (FIREBASE_CONFIG.apiKey === 'YOUR_API_KEY') {
       return update(ref(db),u);
     };
     window.fbConfirm = function(id){ update(ref(db,'warashi_entries/'+id),{confirmed:true}); };
-    window.fbDelete = function(id){ var u={}; u['warashi_entries/'+id]=null; update(ref(db),u); };
+    // 「完全削除」はデータを消さず、両フラグを立てて非表示にするだけ（集計用に履歴を残す）
+    window.fbDelete = function(id){ var u={}; u['warashi_entries/'+id+'/deletedFromOffice']=true; u['warashi_entries/'+id+'/deletedFromOperator']=true; update(ref(db),u); };
     window.fbConfirmAll = function(ids){
       var u={}; ids.forEach(function(id){u['warashi_entries/'+id+'/confirmed']=true;});
       return update(ref(db),u);
     };
     window.fbDeleteMany = function(ids){
-      var u={}; ids.forEach(function(id){u['warashi_entries/'+id]=null;});
+      var u={}; ids.forEach(function(id){u['warashi_entries/'+id+'/deletedFromOffice']=true; u['warashi_entries/'+id+'/deletedFromOperator']=true;});
       return update(ref(db),u);
     };
 
@@ -1539,29 +1545,7 @@ if (FIREBASE_CONFIG.apiKey === 'YOUR_API_KEY') {
       push(custRef, trimmed);
     };
 
-    // 既存データの deletedFromOffice フラグを一括クリア（初回のみ実行）
-    var CLEANUP_DONE_KEY = 'warimashi_office_cleanup_v1';
-    if (!localStorage.getItem(CLEANUP_DONE_KEY)) {
-      get(dbRef).then(function(snap) {
-        var u = {};
-        var count = 0;
-        snap.forEach(function(c) {
-          var val = c.val();
-          if (val && val.deletedFromOffice === true) {
-            u['warashi_entries/' + c.key + '/deletedFromOffice'] = null;
-            count++;
-          }
-        });
-        if (count > 0) {
-          update(ref(db), u).then(function() {
-            console.log('deletedFromOffice クリア完了: ' + count + '件');
-            localStorage.setItem(CLEANUP_DONE_KEY, '1');
-          });
-        } else {
-          localStorage.setItem(CLEANUP_DONE_KEY, '1');
-        }
-      });
-    }
+    // （旧: deletedFromOffice の一括クリア処理は、データを残す方式への変更に伴い削除）
 
     // warashi_entries リアルタイム受信
     onValue(dbRef, function(snap) {
@@ -1569,7 +1553,7 @@ if (FIREBASE_CONFIG.apiKey === 'YOUR_API_KEY') {
       snap.forEach(function(c){window.allEntries.push(Object.assign({id:c.key},c.val()));});
       window.renderOffice();
       window.renderCustomer(); // オペタブ内集計を常時更新
-      var u=window.allEntries.filter(function(e){return !e.confirmed;}).length;
+      var u=window.activeEntries().filter(function(e){return !e.confirmed;}).length;
       document.title=u>0?'('+u+') 割増伝達':'割増伝達システム';
     });
 
