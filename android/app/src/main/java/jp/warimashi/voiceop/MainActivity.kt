@@ -1,0 +1,200 @@
+package jp.warimashi.voiceop
+
+import android.Manifest
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.content.Context
+import android.content.pm.PackageManager
+import android.nfc.NfcAdapter
+import android.nfc.Tag
+import android.os.Bundle
+import android.os.SystemClock
+import android.provider.Settings
+import android.speech.RecognizerIntent
+import android.view.KeyEvent
+import android.view.WindowManager
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import jp.warimashi.voiceop.core.RemoteButtonFilter
+import jp.warimashi.voiceop.ui.MainScreen
+import jp.warimashi.voiceop.ui.NfcStatus
+
+/**
+ * 画面は1つだけ。NFCタグのタップでマイクON/OFFを切り替える。
+ *
+ * NFC は画面が点いていてアプリが前面にあるときしか読めないため、
+ * このアクティビティ表示中は画面を消さない（ポケットモードでは最低輝度＋タッチ無効）。
+ */
+class MainActivity : ComponentActivity(), NfcAdapter.ReaderCallback {
+
+    private val vm: MainViewModel by viewModels()
+    private var nfcAdapter: NfcAdapter? = null
+    @Volatile private var lastTapAt = 0L
+    /** 受け取ったNFCタップの通し番号（ログで何回目かを数えるため）。 */
+    @Volatile private var tapSeq = 0
+    /** 最後に画面が前面に戻った時刻（elapsedRealtime）。 */
+    @Volatile private var resumedAt = 0L
+
+    private var nfcStatus by mutableStateOf(NfcStatus.UNSUPPORTED)
+    private var micGranted by mutableStateOf(false)
+    private var pocketMode by mutableStateOf(false)
+
+    /** Bluetooth リモコンのボタンでマイクON/OFFするか（設定。既定ON）。 */
+    private var remoteEnabled by mutableStateOf(true)
+    private val remoteFilter = RemoteButtonFilter(AppConfig.REMOTE_DEVICE_NAME, AppConfig.REMOTE_DEBOUNCE_MS)
+    private val prefs by lazy { getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
+
+    private val micPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+        micGranted = it
+    }
+
+    /** 認識サービスが使えない端末向け: Android 標準の音声入力画面。 */
+    private val systemDialog = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val list = if (result.resultCode == RESULT_OK) {
+            result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+        } else null
+        vm.onSystemDialogResult(list)
+    }
+
+    private fun launchSystemDialog() {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ja-JP")
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "話してください")
+        }
+        try {
+            systemDialog.launch(intent)
+        } catch (e: ActivityNotFoundException) {
+            vm.onSystemDialogUnavailable()
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        setShowWhenLocked(true)
+        remoteEnabled = prefs.getBoolean(PREF_REMOTE_ENABLED, true)
+
+        nfcAdapter = NfcAdapter.getDefaultAdapter(this)
+        micGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!micGranted) micPermission.launch(Manifest.permission.RECORD_AUDIO)
+
+        lifecycleScope.launch {
+            vm.launchSystemDialog.collect { launchSystemDialog() }
+        }
+
+        setContent {
+            val state by vm.state.collectAsStateWithLifecycle()
+            MainScreen(
+                state = state,
+                nfcStatus = nfcStatus,
+                micGranted = micGranted,
+                pocketMode = pocketMode,
+                onMic = { if (micGranted) vm.onTrigger() else micPermission.launch(Manifest.permission.RECORD_AUDIO) },
+                onCommand = vm::onCommand,
+                onPocketMode = ::applyPocketMode,
+                onOpenNfcSettings = { startActivity(Intent(Settings.ACTION_NFC_SETTINGS)) },
+                onRefreshCustomers = vm::refreshCustomers,
+                remoteEnabled = remoteEnabled,
+                onRemoteEnabled = ::applyRemoteEnabled,
+            )
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val adapter = nfcAdapter
+        nfcStatus = when {
+            adapter == null -> NfcStatus.UNSUPPORTED
+            !adapter.isEnabled -> NfcStatus.DISABLED
+            else -> NfcStatus.READY
+        }
+        resumedAt = SystemClock.elapsedRealtime()
+        // Foreground Dispatch の代わりにリーダーモードを使う:
+        // タグの種類を問わず受け取れ、「未対応のタグです」等のシステム表示や音が出ない
+        adapter?.takeIf { it.isEnabled }?.enableReaderMode(
+            this,
+            this,
+            NfcAdapter.FLAG_READER_NFC_A or NfcAdapter.FLAG_READER_NFC_B or
+                NfcAdapter.FLAG_READER_NFC_F or NfcAdapter.FLAG_READER_NFC_V or
+                NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK or NfcAdapter.FLAG_READER_NO_PLATFORM_SOUNDS,
+            Bundle().apply { putInt(NfcAdapter.EXTRA_READER_PRESENCE_CHECK_DELAY, 1000) },
+        )
+    }
+
+    override fun onPause() {
+        nfcAdapter?.disableReaderMode(this)
+        vm.onPause()
+        super.onPause()
+    }
+
+    /** NFCタグ検出（バインダースレッドで呼ばれる）。 */
+    override fun onTagDiscovered(tag: Tag?) {
+        val now = SystemClock.elapsedRealtime()
+        val seq = ++tapSeq
+        val sinceLast = now - lastTapAt
+        val sinceResume = now - resumedAt
+        if (sinceResume < AppConfig.NFC_IGNORE_AFTER_RESUME_MS) {
+            runOnUiThread { vm.logNfc(seq, "無視", "画面復帰から${sinceResume}ms（${AppConfig.NFC_IGNORE_AFTER_RESUME_MS}ms以内）") }
+            return
+        }
+        if (sinceLast < AppConfig.NFC_DEBOUNCE_MS) {
+            runOnUiThread { vm.logNfc(seq, "無視", "前回受理から${sinceLast}ms（${AppConfig.NFC_DEBOUNCE_MS}ms以内）") }
+            return
+        }
+        lastTapAt = now
+        runOnUiThread { vm.onNfcTap(seq, micGranted) }
+    }
+
+    /**
+     * Bluetooth リモコン（BTselfie）のボタンでマイクON/OFFを切り替える。
+     * 判定は [RemoteButtonFilter]: リモコンのキーはすべて消費してシステム音量を変えず、
+     * 本体の音量ボタンなど他のキーはいつもどおり処理する。
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        val decision = remoteFilter.decide(
+            enabled = remoteEnabled,
+            keyCode = event.keyCode,
+            action = event.action,
+            repeatCount = event.repeatCount,
+            deviceName = event.device?.name,
+            now = SystemClock.elapsedRealtime(),
+        )
+        return when (decision) {
+            RemoteButtonFilter.Decision.PASS -> super.dispatchKeyEvent(event)
+            RemoteButtonFilter.Decision.CONSUME -> true
+            RemoteButtonFilter.Decision.TOGGLE -> {
+                vm.onRemoteToggle(micGranted)
+                true
+            }
+        }
+    }
+
+    private fun applyRemoteEnabled(on: Boolean) {
+        remoteEnabled = on
+        prefs.edit().putBoolean(PREF_REMOTE_ENABLED, on).apply()
+    }
+
+    private fun applyPocketMode(on: Boolean) {
+        pocketMode = on
+        window.attributes = window.attributes.apply {
+            screenBrightness = if (on) 0.01f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        }
+    }
+
+    companion object {
+        private const val PREFS_NAME = "settings"
+        private const val PREF_REMOTE_ENABLED = "remote_button_enabled"
+    }
+}
