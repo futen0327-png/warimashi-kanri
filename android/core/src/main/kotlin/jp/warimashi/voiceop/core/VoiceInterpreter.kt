@@ -16,6 +16,8 @@ object VoiceInterpreter {
         val action: Action = Action.NONE,
         /** エラー音を鳴らすべき結果か。 */
         val error: Boolean = false,
+        /** 補正辞書で値を直したときのログ行（元の認識文字列と補正後の値）。新しい揺れを拾うために残す。 */
+        val corrections: List<String> = emptyList(),
     )
 
     const val NOT_UNDERSTOOD = "聞き取れませんでした。もう一度お願いします"
@@ -33,10 +35,16 @@ object VoiceInterpreter {
         today: List<RecordedEntry> = emptyList(),
     ): Outcome {
         val parsed = candidates.map { it to UtteranceParser.parse(it) }
-        val first = parsed.firstOrNull { it.second != null }?.second
+        val (heard, first) = parsed.firstNotNullOfOrNull { (c, u) -> u?.let { c to it } }
             ?: return Outcome(buffer, NOT_UNDERSTOOD, error = true)
 
-        return when (first) {
+        val corrections = when (first) {
+            is Utterance.Updates -> first.corrections
+            is Utterance.Copy -> first.corrections
+            is Utterance.Command -> emptyList()
+        }.map { it.describe(heard) }
+
+        val outcome = when (first) {
             is Utterance.Command -> command(buffer, first.command)
             is Utterance.Copy -> copy(buffer, first, today, customers)
             is Utterance.Updates -> {
@@ -48,6 +56,7 @@ object VoiceInterpreter {
                 apply(buffer, first.updates, customerAlternatives, customers)
             }
         }
+        return outcome.copy(corrections = corrections)
     }
 
     private fun command(buffer: EntryBuffer, command: Vocabulary.Command): Outcome = when (command) {

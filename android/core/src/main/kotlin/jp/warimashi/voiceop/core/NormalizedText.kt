@@ -44,6 +44,15 @@ class NormalizedText private constructor(
                     .lowercase()
                 for (ch in piece) {
                     if (ch.isWhitespace() || PUNCT.indexOf(ch) >= 0) continue
+                    // 半角カナの濁点・半濁点（ｽﾞ→ず）は直前の文字と合成する
+                    if ((ch == '゙' || ch == '゚') && chars.isNotEmpty()) {
+                        val composed = Normalizer.normalize("${chars.last()}$ch", Normalizer.Form.NFC)
+                        if (composed.length == 1) {
+                            chars.setCharAt(chars.length - 1, composed[0])
+                            ends[ends.size - 1] = next
+                            continue
+                        }
+                    }
                     chars.append(kataToHira(ch))
                     starts.add(i)
                     ends.add(next)

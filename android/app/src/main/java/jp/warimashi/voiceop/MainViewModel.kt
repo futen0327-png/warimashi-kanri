@@ -299,6 +299,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app), SpeechInput.Liste
 
     private fun applyOutcome(candidates: List<String>) {
         val outcome = VoiceInterpreter.handle(_state.value.buffer, candidates, customers, todayEntries)
+        // 補正辞書が働いたときは、元の認識文字列と補正後の値を残す（新しい揺れを辞書に足すため）
+        outcome.corrections.forEach { msg ->
+            Log.i(SpeechInput.TAG, msg)
+            trace(msg)
+        }
         if (outcome.speech == VoiceInterpreter.NOT_UNDERSTOOD) {
             // どの候補も解釈できなかった: 候補ごとに、どこまで解釈できて何が残ったかを残す
             candidates.forEachIndexed { i, c ->

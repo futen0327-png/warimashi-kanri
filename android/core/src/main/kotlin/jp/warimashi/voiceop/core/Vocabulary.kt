@@ -16,10 +16,25 @@ enum class Field(val label: String, val speech: String) {
  * synonyms は音声認識の揺れ（ひらがな・同音異字など）を吸収するための別表記。
  * valueIsWord=false のときは value（割増キーなど）自体を発話の語として扱わない。
  */
-class Term(val value: String, val speech: String, synonyms: List<String>, valueIsWord: Boolean = true) {
-    val forms: List<String> = (synonyms + speech + if (valueIsWord) listOf(value) else emptyList()).map { NormalizedText.normalize(it) }
-        .filter { it.isNotEmpty() }
-        .distinct()
+class Term private constructor(
+    val value: String,
+    val speech: String,
+    val forms: List<String>,
+    /** 補正辞書（[Corrections]）の語として照合されたとき、その語と補正後の表示名。 */
+    val correction: Pair<String, String>?,
+) {
+    constructor(value: String, speech: String, synonyms: List<String>, valueIsWord: Boolean = true) : this(
+        value,
+        speech,
+        (synonyms + speech + if (valueIsWord) listOf(value) else emptyList()).map { NormalizedText.normalize(it) }
+            .filter { it.isNotEmpty() }
+            .distinct(),
+        null,
+    )
+
+    /** 誤認識 heard を、この語（表示名 label）として照合させる補正形。照合に使うのは heard だけ。 */
+    fun correctedFrom(heard: String, label: String): Term =
+        Term(value, speech, listOf(NormalizedText.normalize(heard)).filter { it.isNotEmpty() }, heard to label)
 }
 
 /** 正規化済みテキストの pos 位置から始まる語を探す（最長一致）。 */
@@ -151,10 +166,11 @@ object Vocabulary {
         Term("大きすぎる", "おおきすぎる", listOf("おおきすぎる", "大き過ぎる", "大きすぎ", "でかすぎる")),
     )
 
-    val itemSet = TermSet.ofTerms(items)
+    // 品目・割増・理由には補正辞書の語も入れる（その項目として照合したときだけ効く）
+    val itemSet = TermSet.ofTerms(items + Corrections.termsFor(Field.ITEM, items))
     val sizeSet = TermSet.ofTerms(sizes)
-    val surchargeSet = TermSet.ofTerms(surcharges)
-    val reasonSet = TermSet.ofTerms(reasons)
+    val surchargeSet = TermSet.ofTerms(surcharges + Corrections.termsFor(Field.SURCHARGE, surcharges))
+    val reasonSet = TermSet.ofTerms(reasons + Corrections.termsFor(Field.REASON, reasons))
     val rejectSet = TermSet.ofTerms(rejects)
 
     /** 語と語のあいだに入りがちなつなぎ言葉（読み飛ばす）。 */

@@ -12,7 +12,8 @@ sealed interface FieldValue {
     data class Multi(val values: List<String>) : FieldValue
 }
 
-data class FieldUpdate(val field: Field, val value: FieldValue)
+/** corrections は、この値を出すのに補正辞書（[Corrections]）で直したもの。 */
+data class FieldUpdate(val field: Field, val value: FieldValue, val corrections: List<Correction> = emptyList())
 
 /** 1回の発話の解釈結果。 */
 sealed interface Utterance {
@@ -20,12 +21,14 @@ sealed interface Utterance {
 
     /**
      * 「コピー」: 当日の登録から条件に合う最新の1件を入力欄に写す。
-     * 条件はどちらも任意（両方 null なら直前の登録）。customer は発話の表記のまま。
+     * 条件はどちらも任意（両方 null なら直前の登録）。customer は発話の表記のまま（補正辞書に一致したときだけ正規の名前）。
      */
-    data class Copy(val customer: String?, val plate: String?) : Utterance
+    data class Copy(val customer: String?, val plate: String?, val corrections: List<Correction> = emptyList()) : Utterance
 
     /** 位置ベース（5-1）または項目名+値（5-2）で解釈した項目の更新。 */
-    data class Updates(val updates: List<FieldUpdate>, val labeled: Boolean) : Utterance
+    data class Updates(val updates: List<FieldUpdate>, val labeled: Boolean) : Utterance {
+        val corrections: List<Correction> get() = updates.flatMap { it.corrections }
+    }
 }
 
 /**
@@ -36,7 +39,10 @@ sealed interface Utterance {
  * - 全体が割増理由の語だけ（「大きさ 鉄筋」）なら、「理由」を付けなくても理由
  * - 先頭が項目名（ナンバー/品目/サイズ/割増/理由/客先/拒否）なら「項目名+値」方式
  * - それ以外は「ナンバー → 品目 → サイズ → 割増」の位置ベース方式。
- *   その後ろに割増理由を続けてもよい（「コンガラ 4トン 2割 大きさ」。「理由」は付けても付けなくてもよい）
+ *   その後ろに割増理由を続けてもよい（「コンガラ 4トン 2割 大きさ」。「理由」は付けても付けなくてもよい）。
+ *   さらに項目名+値を続けてもよい（「コンガラ 4トン 2割 客先 アズマヤ」）
+ *
+ * 品目・割増・理由・客先の値には、項目が決まった後で補正辞書（[Corrections]）を当てる。
  *
  * 音声認識は区切り（空白・読点）を入れないことが多いので、区切りに頼らず
  * 正規化テキストを先頭から語彙と突き合わせて切り分ける。解釈しきれない文字が
@@ -45,6 +51,15 @@ sealed interface Utterance {
 object UtteranceParser {
 
     private val positionalSlots = listOf(Field.NUMBER, Field.ITEM, Field.SIZE, Field.SURCHARGE)
+
+    /** 項目の値として解釈できた候補（値, 終了位置, 補正辞書で直したもの）。 */
+    private data class Hit(val value: FieldValue, val end: Int, val corrections: List<Correction> = emptyList())
+
+    private fun Hit.toUpdate(field: Field) = FieldUpdate(field, value, corrections)
+
+    /** 語彙の語から作る候補。補正辞書の語だったら補正として記録する。 */
+    private fun termHit(field: Field, term: Term, end: Int) =
+        Hit(FieldValue.Single(term.value), end, listOfNotNull(term.correction?.let { Correction(field, it.first, it.second) }))
 
     fun parse(raw: String): Utterance? {
         val nt = NormalizedText.of(raw)
@@ -56,7 +71,7 @@ object UtteranceParser {
         parseReasonsOnly(t)?.let { return it }
 
         val labelStart = fillerSkips(t, 0).firstOrNull { Vocabulary.fieldLabels.matchAt(t, it) != null }
-        return if (labelStart != null) parseLabeled(nt, labelStart) else parsePositional(t)
+        return if (labelStart != null) parseLabeled(nt, labelStart) else parsePositional(nt)
     }
 
     // ------------------------------------------------------------------
@@ -92,7 +107,7 @@ object UtteranceParser {
         val before = copyArgs(nt, 0, at) ?: return null
         val after = copyArgs(nt, at + len, t.length) ?: return null
         if ((before.customer != null && after.customer != null) || (before.plate != null && after.plate != null)) return null
-        return Utterance.Copy(before.customer ?: after.customer, before.plate ?: after.plate)
+        return Utterance.Copy(before.customer ?: after.customer, before.plate ?: after.plate, before.corrections + after.corrections)
     }
 
     /**
@@ -158,7 +173,9 @@ object UtteranceParser {
             break
         }
         val customer = nt.rawSlice(s, e).trim().trim('、', '。', ',', '.', ' ', '　').ifEmpty { null }
-        return Utterance.Copy(customer, plate)
+            ?: return Utterance.Copy(null, plate)
+        val (name, corrections) = correctCustomer(customer)
+        return Utterance.Copy(name, plate, corrections)
     }
 
     // ------------------------------------------------------------------
@@ -167,8 +184,8 @@ object UtteranceParser {
 
     private fun parseReasonsOnly(t: String): Utterance? {
         for (p in fillerSkips(t, 0)) {
-            val (value, end) = terms(t, p, Vocabulary.reasonSet) ?: continue
-            if (reachesEnd(t, end)) return Utterance.Updates(listOf(FieldUpdate(Field.REASON, value)), labeled = true)
+            val hit = terms(Field.REASON, t, p, Vocabulary.reasonSet) ?: continue
+            if (reachesEnd(t, hit.end)) return Utterance.Updates(listOf(hit.toUpdate(Field.REASON)), labeled = true)
         }
         return null
     }
@@ -177,56 +194,59 @@ object UtteranceParser {
     // 位置ベース（ナンバー → 品目 → サイズ → 割増）
     // ------------------------------------------------------------------
 
-    private fun parsePositional(t: String): Utterance? {
-        val updates = positionalSearch(t, 0, 0, emptyList()) ?: return null
+    private fun parsePositional(nt: NormalizedText): Utterance? {
+        val updates = positionalSearch(nt, 0, 0, emptyList()) ?: return null
         return Utterance.Updates(updates, labeled = false)
     }
 
     /** バックトラックで先頭から各スロットを埋め、全文字を使い切れる解釈を探す。 */
-    private fun positionalSearch(t: String, pos: Int, slot: Int, acc: List<FieldUpdate>): List<FieldUpdate>? {
+    private fun positionalSearch(nt: NormalizedText, pos: Int, slot: Int, acc: List<FieldUpdate>): List<FieldUpdate>? {
+        val t = nt.text
         if (slot == positionalSlots.size) {
             if (acc.isEmpty()) return null
-            if (reachesEnd(t, pos)) return acc
-            return reasonTail(t, pos)?.let { acc + FieldUpdate(Field.REASON, it) }
+            return positionalTail(nt, pos)?.let { acc + it }
         }
         val field = positionalSlots[slot]
         for (p in fillerSkips(t, pos)) {
-            for ((value, end) in slotCandidates(field, t, p)) {
-                positionalSearch(t, end, slot + 1, acc + FieldUpdate(field, value))?.let { return it }
+            for (hit in slotCandidates(field, t, p)) {
+                positionalSearch(nt, hit.end, slot + 1, acc + hit.toUpdate(field))?.let { return it }
             }
         }
         // このスロットは発話されなかった（値を変更しない）
-        return positionalSearch(t, pos, slot + 1, acc)
+        return positionalSearch(nt, pos, slot + 1, acc)
     }
 
     /**
-     * 位置ベースの後ろに続く割増理由（最後まで）。「理由」が付いていれば取り除いてから照合する。
+     * 位置ベースの後ろに続く部分（最後まで）。何もなければ空。
+     * 割増理由（「理由」なし）と、項目名+値（「理由 大きさ」「客先 アズマヤ」）を続けられる。
      * 「パス」（理由を空欄）は「理由」が付いているときだけ受け付ける。
      */
-    private fun reasonTail(t: String, pos: Int): FieldValue? {
+    private fun positionalTail(nt: NormalizedText, pos: Int): List<FieldUpdate>? {
+        val t = nt.text
+        if (reachesEnd(t, pos)) return emptyList()
+        labeledFrom(nt, pos)?.let { return it }
         for (p in fillerSkips(t, pos)) {
-            val label = Vocabulary.fieldLabels.matchAt(t, p)
-            val hit = if (label != null && label.first == Field.REASON) multiValue(t, p + label.second, Vocabulary.reasonSet)
-            else terms(t, p, Vocabulary.reasonSet)
-            if (hit != null && reachesEnd(t, hit.second)) return hit.first
+            val hit = terms(Field.REASON, t, p, Vocabulary.reasonSet) ?: continue
+            val rest = if (reachesEnd(t, hit.end)) emptyList() else labeledFrom(nt, hit.end) ?: continue
+            return listOf(hit.toUpdate(Field.REASON)) + rest
         }
         return null
     }
 
     /** pos から始まる、その項目の値として解釈できる候補（値, 終了位置）。 */
-    private fun slotCandidates(field: Field, t: String, pos: Int): List<Pair<FieldValue, Int>> {
-        val out = ArrayList<Pair<FieldValue, Int>>()
-        Vocabulary.pass.matchAt(t, pos)?.let { (_, len) -> out += FieldValue.Clear to pos + len }
+    private fun slotCandidates(field: Field, t: String, pos: Int): List<Hit> {
+        val out = ArrayList<Hit>()
+        Vocabulary.pass.matchAt(t, pos)?.let { (_, len) -> out += Hit(FieldValue.Clear, pos + len) }
         when (field) {
             Field.NUMBER -> out += numberCandidates(t, pos)
             Field.ITEM -> Vocabulary.itemSet.matchAt(t, pos)?.let { (term, len) ->
-                out += FieldValue.Single(term.value) to pos + len
+                out += termHit(field, term, pos + len)
             }
             Field.SIZE -> Vocabulary.sizeSet.matchAt(t, pos)?.let { (term, len) ->
-                out += FieldValue.Single(term.value) to pos + len
+                out += termHit(field, term, pos + len)
             }
             Field.SURCHARGE -> Vocabulary.surchargeSet.matchAt(t, pos)?.let { (term, len) ->
-                out += FieldValue.Single(term.value) to pos + len
+                out += termHit(field, term, pos + len)
             }
             else -> Unit
         }
@@ -237,7 +257,7 @@ object UtteranceParser {
      * ナンバー（1〜4桁の数字）。「12342トン」のように次の語とくっついて
      * 認識された場合に備え、長い桁数から順に候補を返す。
      */
-    private fun numberCandidates(t: String, pos: Int): List<Pair<FieldValue, Int>> {
+    private fun numberCandidates(t: String, pos: Int): List<Hit> {
         var end = pos
         while (end < t.length && t[end].isDigit()) end++
         val run = end - pos
@@ -245,7 +265,7 @@ object UtteranceParser {
         return (minOf(run, 4) downTo 1).map { len ->
             var e = pos + len
             if (len == run && t.startsWith("番", e)) e++
-            FieldValue.Single(t.substring(pos, pos + len)) to e
+            Hit(FieldValue.Single(t.substring(pos, pos + len)), e)
         }
     }
 
@@ -253,22 +273,26 @@ object UtteranceParser {
     // 項目名+値
     // ------------------------------------------------------------------
 
-    private fun parseLabeled(nt: NormalizedText, start: Int): Utterance? {
+    private fun parseLabeled(nt: NormalizedText, start: Int): Utterance? =
+        labeledFrom(nt, start)?.let { Utterance.Updates(it, true) }
+
+    /** pos から最後まで「項目名+値」が並んでいれば、その更新。 */
+    private fun labeledFrom(nt: NormalizedText, start: Int): List<FieldUpdate>? {
         val t = nt.text
         val updates = ArrayList<FieldUpdate>()
         var pos = start
         while (true) {
             val labelPos = fillerSkips(t, pos).firstOrNull { Vocabulary.fieldLabels.matchAt(t, it) != null }
-                ?: return if (updates.isNotEmpty() && reachesEnd(t, pos)) Utterance.Updates(updates, true) else null
+                ?: return if (updates.isNotEmpty() && reachesEnd(t, pos)) updates else null
             val (field, len) = Vocabulary.fieldLabels.matchAt(t, labelPos)!!
-            val (value, end) = labeledValue(field, nt, labelPos + len) ?: return null
-            updates += FieldUpdate(field, value)
-            pos = end
-            if (reachesEnd(t, pos)) return Utterance.Updates(updates, true)
+            val hit = labeledValue(field, nt, labelPos + len) ?: return null
+            updates += hit.toUpdate(field)
+            pos = hit.end
+            if (reachesEnd(t, pos)) return updates
         }
     }
 
-    private fun labeledValue(field: Field, nt: NormalizedText, pos: Int): Pair<FieldValue, Int>? {
+    private fun labeledValue(field: Field, nt: NormalizedText, pos: Int): Hit? {
         val t = nt.text
         return when (field) {
             Field.NUMBER, Field.ITEM, Field.SIZE, Field.SURCHARGE -> {
@@ -281,41 +305,44 @@ object UtteranceParser {
                 }
                 null
             }
-            Field.REASON -> multiValue(t, pos, Vocabulary.reasonSet)
-            Field.REJECT -> multiValue(t, pos, Vocabulary.rejectSet)
+            Field.REASON -> multiValue(field, t, pos, Vocabulary.reasonSet)
+            Field.REJECT -> multiValue(field, t, pos, Vocabulary.rejectSet)
             Field.CUSTOMER -> customerValue(nt, pos)
         }
     }
 
     /** 「大きさ、鉄筋」のように複数の語を続けて言う項目。 */
-    private fun multiValue(t: String, pos: Int, set: TermSet<Term>): Pair<FieldValue, Int>? {
+    private fun multiValue(field: Field, t: String, pos: Int, set: TermSet<Term>): Hit? {
         for (p in fillerSkips(t, pos)) {
-            Vocabulary.pass.matchAt(t, p)?.let { (_, len) -> return FieldValue.Clear to p + len }
+            Vocabulary.pass.matchAt(t, p)?.let { (_, len) -> return Hit(FieldValue.Clear, p + len) }
         }
-        return terms(t, pos, set)
+        return terms(field, t, pos, set)
     }
 
     /** 語彙の語の並び（「パス」は含めない）。1語もなければ null。 */
-    private fun terms(t: String, pos: Int, set: TermSet<Term>): Pair<FieldValue, Int>? {
+    private fun terms(field: Field, t: String, pos: Int, set: TermSet<Term>): Hit? {
         val values = ArrayList<String>()
+        val corrections = ArrayList<Correction>()
         var cur = pos
         while (true) {
             val next = fillerSkips(t, cur).firstNotNullOfOrNull { p ->
-                set.matchAt(t, p)?.let { (term, len) -> term.value to p + len }
+                set.matchAt(t, p)?.let { (term, len) -> termHit(field, term, p + len) }
             } ?: break
-            if (next.first !in values) values += next.first
-            cur = next.second
+            val value = (next.value as FieldValue.Single).value
+            if (value !in values) values += value
+            corrections += next.corrections
+            cur = next.end
         }
         if (values.isEmpty()) return null
-        return FieldValue.Multi(values) to cur
+        return Hit(FieldValue.Multi(values), cur, corrections)
     }
 
     /** 顧客名は自由記述。次の項目名が出てくるまで（または最後まで）を元の表記で取り出す。 */
-    private fun customerValue(nt: NormalizedText, pos: Int): Pair<FieldValue, Int>? {
+    private fun customerValue(nt: NormalizedText, pos: Int): Hit? {
         val t = nt.text
         for (p in fillerSkips(t, pos)) {
             Vocabulary.pass.matchAt(t, p)?.let { (_, len) ->
-                if (reachesEnd(t, p + len)) return FieldValue.Clear to p + len
+                if (reachesEnd(t, p + len)) return Hit(FieldValue.Clear, p + len)
             }
         }
         var start = pos
@@ -325,7 +352,15 @@ object UtteranceParser {
         while (end < t.length && (end == start || Vocabulary.fieldLabels.matchAt(t, end) == null)) end++
         val name = nt.rawSlice(start, end).trim().trim('、', '。', ',', '.', ' ', '　')
         if (name.isEmpty()) return null
-        return FieldValue.Single(name) to end
+        val (corrected, corrections) = correctCustomer(name)
+        return Hit(FieldValue.Single(corrected), end, corrections)
+    }
+
+    /** 客先名に補正辞書を当てる（「東屋」→「アズマヤ」）。あいまい一致はこの後に [CustomerMatcher] で行う。 */
+    private fun correctCustomer(name: String): Pair<String, List<Correction>> {
+        val corrected = Corrections.correct(Field.CUSTOMER, name) ?: return name to emptyList()
+        if (corrected == name) return name to emptyList()
+        return corrected to listOf(Correction(Field.CUSTOMER, name, corrected))
     }
 
     // ------------------------------------------------------------------
@@ -358,7 +393,7 @@ object UtteranceParser {
             if (slot == positionalSlots.size) return
             val field = positionalSlots[slot]
             for (p in fillerSkips(t, pos)) {
-                for ((value, end) in slotCandidates(field, t, p)) search(end, slot + 1, acc + FieldUpdate(field, value))
+                for (hit in slotCandidates(field, t, p)) search(hit.end, slot + 1, acc + hit.toUpdate(field))
             }
             search(pos, slot + 1, acc)
         }
@@ -374,9 +409,9 @@ object UtteranceParser {
         while (pos < t.length) {
             val labelPos = fillerSkips(t, pos).firstOrNull { Vocabulary.fieldLabels.matchAt(t, it) != null } ?: break
             val (field, len) = Vocabulary.fieldLabels.matchAt(t, labelPos)!!
-            val (value, end) = labeledValue(field, nt, labelPos + len) ?: return labelPos to acc
-            acc += FieldUpdate(field, value)
-            pos = end
+            val hit = labeledValue(field, nt, labelPos + len) ?: return labelPos to acc
+            acc += hit.toUpdate(field)
+            pos = hit.end
         }
         return pos to acc
     }
